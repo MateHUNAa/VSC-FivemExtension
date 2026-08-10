@@ -145,6 +145,33 @@ anywhere else in that resource. There's no type inference — a table name match
 so it can over-suggest if two unrelated tables in the same resource happen to share a name.
 Toggle with `perfectFivem.oop.enable`.
 
+**Cross-resource "proxy global" completion.** Some core frameworks hand consuming resources a
+single global (e.g. `LS`, `qbx`, `lib`) via a file loaded with
+`shared_script '@core_resource/init.lua'`, where the table's methods
+(`function LS:RegisterModule(...)`) are declared *inside that imported file*, not in the resource
+you're actually editing — so the same-resource-only scan above finds nothing. When a resource's
+manifest declares an `@resource/path` import, `TableMethodCompletionProvider` now also checks the
+imported resource for a matching `function <TableName>:...` declaration. If one is found (which
+confirms the global really does live there, avoiding blind cross-resource guessing), it also
+merges in that resource's `exports(...)` entries from `ExportsIndexer` — since these proxy
+globals typically forward any unrecognized call straight to their own exports (this is exactly
+how `ls_core`'s `LS` object works: `LS:SomeExport(...)` falls through its `__index`/`__call`
+metatable to `exports.ls_core.SomeExport(...)`). Purely dynamic members — properties assigned at
+runtime (`LS.PlayerData = ...`) or modules loaded through a runtime registry rather than a static
+`function Table:Method()` declaration — are still outside this pattern-based approach; that part
+of the "known limitations" below still applies.
+
+As a last-resort discovery aid for exactly that dynamic case, once an imported table source is
+confirmed, `TableMethodCompletionProvider` also lists subfolders of that resource's `modules/`
+directory that aren't already covered by a real method/export match — plain names with no
+signature, sorted after the real completions, clearly labeled "not yet loaded/typed" — so a
+module that's never been used anywhere yet (and therefore has zero static footprint for either
+this extension or a real language server to find) still shows up as *something exists here*. The
+real, permanent fix for that class of module is EmmyLua type annotations in the framework itself
+(a `---@class` per module, referenced from a stub next to the proxy global) — that's what gives a
+real language server full hover/signature/type info; this extension's own discovery aid is only a
+fallback for what isn't annotated (yet).
+
 ## RCON restart-on-save
 
 FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc

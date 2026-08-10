@@ -82,7 +82,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // --- Lightweight local OOP/table-method completion ---------------------------
   if (config.get<boolean>('oop.enable', true)) {
-    const tableMethodCompletionProvider = new TableMethodCompletionProvider(tableMethodIndexer, scanner);
+    const tableMethodCompletionProvider = new TableMethodCompletionProvider(
+      tableMethodIndexer,
+      scanner,
+      contextIndex,
+      exportsIndex,
+    );
     context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, tableMethodCompletionProvider, '.', ':'),
     );
