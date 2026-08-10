@@ -10,7 +10,7 @@ const SCRIPT_KEYS: Record<string, ScriptContext> = {
 };
 
 /** Strips `--[[ ... ]]` / `--[=[ ... ]=]` long comments and `-- ...` line comments. */
-function stripComments(text: string): string {
+export function stripComments(text: string): string {
   // Long comments: --[[ ... ]], --[=[ ... ]=], etc. Must run before line-comment stripping.
   let out = text.replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, (m) => blank(m));
 

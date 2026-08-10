@@ -69,6 +69,16 @@
           "highContrast": "charts.purple",
           "highContrastLight": "charts.purple"
         }
+      },
+      {
+        "id": "perfectFivem.decorations.requiredColor",
+        "description": "Explorer badge color for Lua files pulled in only via require(...), not listed directly in fxmanifest.lua.",
+        "defaults": {
+          "dark": "charts.orange",
+          "light": "charts.orange",
+          "highContrast": "charts.orange",
+          "highContrastLight": "charts.orange"
+        }
       }
     ],
     "configuration": {
@@ -89,7 +99,7 @@
         "perfectFivem.decorations.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show client/server/shared badges on Lua files in the Explorer, based on the pre-computed fxmanifest context index."
+          "description": "Show client/server/shared/required badges on Lua files in the Explorer, based on the pre-computed fxmanifest + require() context index."
         },
         "perfectFivem.natives.enable": {
           "type": "boolean",

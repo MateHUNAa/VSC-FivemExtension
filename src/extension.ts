@@ -134,6 +134,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
 
+  // --- Context refresh on save (require() graph depends on file content, not just presence) ----
+  const contextRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      if (document.languageId !== 'lua' || document.uri.scheme !== 'file') return;
+      const key = normalizePathKey(document.uri.fsPath);
+      const existing = contextRefreshTimers.get(key);
+      if (existing) clearTimeout(existing);
+      contextRefreshTimers.set(
+        key,
+        setTimeout(() => {
+          contextRefreshTimers.delete(key);
+          void contextIndex.refreshForFile(document.uri.fsPath);
+        }, DIAGNOSTIC_DEBOUNCE_MS),
+      );
+    }),
+  );
+
   // --- Diagnostics -------------------------------------------------------------
   const diagnostics = new NativeContextDiagnostics(nativesDb, contextIndex);
   context.subscriptions.push(diagnostics);
@@ -204,6 +222,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const lines = [
         `Resource: ${entry.resource.name}`,
         `Context: ${entry.context}`,
+        `Loaded via: ${
+          entry.via === 'require' ? 'require() - not listed in fxmanifest.lua' : 'fxmanifest.lua script pattern'
+        }`,
         `Manifest: ${vscode.workspace.asRelativePath(entry.resource.manifestUri)} (${entry.resource.manifestKind})`,
         ...(importLines.length ? ['Declared imports:', ...importLines] : []),
       ];

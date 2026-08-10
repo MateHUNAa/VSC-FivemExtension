@@ -8,6 +8,11 @@ const BADGES: Record<ScriptContext, { badge: string; tooltip: string; color: str
   shared: { badge: 'SH', tooltip: 'FiveM shared script', color: 'perfectFivem.decorations.sharedColor' },
 };
 
+const REQUIRED_BADGE = {
+  badge: 'R',
+  color: 'perfectFivem.decorations.requiredColor',
+};
+
 /**
  * Badges Lua files in the Explorer with their client/server/shared context. Reads only from
  * ContextIndex's precomputed map - never touches the filesystem or fxmanifest at display time.
@@ -26,6 +31,13 @@ export class ContextFileDecorationProvider implements vscode.FileDecorationProvi
     const entry = this.index.getFileContext(uri);
     if (!entry) return undefined; // fallback: no decoration for Lua files outside any resource
     const spec = BADGES[entry.context];
+    if (entry.via === 'require') {
+      return {
+        badge: REQUIRED_BADGE.badge,
+        tooltip: `${spec.tooltip}, required via require() - not listed in fxmanifest.lua (${entry.resource.name})`,
+        color: new vscode.ThemeColor(REQUIRED_BADGE.color),
+      };
+    }
     return {
       badge: spec.badge,
       tooltip: `${spec.tooltip} (${entry.resource.name})`,

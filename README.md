@@ -11,11 +11,18 @@ exports/event IntelliSense across resources in the workspace.
 - **Script context extraction** — `client_script(s)`, `server_script(s)`, `shared_script(s)`
   are parsed (globs, nested paths, comments, multi-line tables all handled) into a concrete
   file → `client` / `server` / `shared` map. A file listed under both client and server is
-  treated as `shared`.
+  treated as `shared`. Files not listed at all are followed one more hop: `require(...)` calls
+  in declared scripts are resolved (dotted or slashed module paths, same-resource only) so
+  transitively-loaded modules inherit a context too, converging to `shared` the same way if
+  reachable from both sides.
 - **Context-aware native IntelliSense** — completion, hover and signature help for ~6,300 named
   FiveM/GTA natives, filtered to what's actually callable from the file you're editing.
 - **Explorer decorations** — Lua files get a `C` / `S` / `SH` badge in the file tree, read
   straight from the precomputed index (no re-parsing on every repaint).
+- **Required-file detection** — files never listed in `fxmanifest.lua` but pulled in
+  transitively via `require(...)` from a declared script get an `R` badge instead, with their
+  client/server/shared context still resolved (inherited from whichever script(s) require them)
+  so native diagnostics keep working on them too.
 - **Exports & event IntelliSense** — `exports['resource']:method()` and `exports.resource:method()`
   both resolve to real completions sourced from that resource's `exports(...)` declarations
   anywhere in the workspace; event name completion inside `TriggerEvent`/`RegisterNetEvent`/etc.
@@ -210,7 +217,7 @@ channel after saving a file if you're unsure.
 | Setting | Default | Description |
 |---|---|---|
 | `perfectFivem.resourceDetection.excludeGlobs` | `["**/node_modules/**", "**/.git/**", "**/vendor/**"]` | Folders skipped when scanning for manifests. |
-| `perfectFivem.decorations.enable` | `true` | Explorer client/server/shared badges. |
+| `perfectFivem.decorations.enable` | `true` | Explorer client/server/shared/required badges. |
 | `perfectFivem.natives.enable` | `true` | Native completion/hover/signature help. |
 | `perfectFivem.natives.databasePath` | `""` | Absolute path to a custom normalized `natives.json`; empty uses the bundled one. |
 | `perfectFivem.natives.enableDiagnostics` | `true` | Wrong-side native warnings. |
@@ -223,7 +230,7 @@ channel after saving a file if you're unsure.
 | `perfectFivem.rcon.autoRestartOnSave` | `true` | Restart the saved file's owning resource automatically. |
 | `perfectFivem.rcon.restartDelayMs` | `300` | Debounce window before sending the restart. |
 
-Badge colors (client/server/shared) are theme colors, not settings — customize them via
+Badge colors (client/server/shared/required) are theme colors, not settings — customize them via
 `workbench.colorCustomizations` in `settings.json`, or run **Preferences: Customize Colors**
 from the Command Palette for a live color picker:
 
@@ -231,11 +238,13 @@ from the Command Palette for a live color picker:
 "workbench.colorCustomizations": {
   "perfectFivem.decorations.clientColor": "#3794FF",
   "perfectFivem.decorations.serverColor": "#E78AFF",
-  "perfectFivem.decorations.sharedColor": "#B180D7"
+  "perfectFivem.decorations.sharedColor": "#B180D7",
+  "perfectFivem.decorations.requiredColor": "#CC9944"
 }
 ```
 
-The server badge defaults to pink/magenta (`#E78AFF`).
+The server badge defaults to pink/magenta (`#E78AFF`); the required badge defaults to orange
+(theme `charts.orange`).
 
 ## The natives database
 
@@ -257,6 +266,11 @@ Run `npm run update-natives` to re-fetch and regenerate `data/natives.json`.
 - Diagnostics flag *known* natives used on the wrong side; they do not flag unknown/undefined
   identifiers, since that requires full static resolution of locals/requires and would produce
   false positives on ordinary user-defined functions.
+- `require(...)` resolution only follows same-resource module paths (`require('a.b.c')` →
+  `<resource>/a/b/c.lua`); `require('@other_resource/...')` cross-resource requires aren't
+  resolved, so those files won't get the `R` badge or an inherited context.
+- The require graph is re-resolved on file save (and file add/delete), not on every keystroke -
+  edit a `require(...)` call and save to see the badge update.
 - Dynamically-generated APIs (e.g. `ox_lib`'s `lib` global, built via a runtime metatable
   rather than a static `exports` table) are not introspected — only resources that use the
   standard `exports('name', fn)` / `exports.name = fn` pattern get automatic export
@@ -289,6 +303,10 @@ Development Host:
    feature:
    - **Resource detection & decorations** — the Explorer should badge `client/main.lua` `C`,
      `server/main.lua` `S`, `shared/config.lua` and `test_lib/init.lua` `SH`.
+   - **Required-file detection** — `server/modules/kick_reason.lua` isn't listed in
+     `fxmanifest.lua` (only `server/*.lua` is, which doesn't match nested paths); it's only
+     reachable via the `require('server.modules.kick_reason')` call in `server/main.lua`, so it
+     should badge `R` instead of `S`.
    - **Native completion/hover** — open `client/main.lua`, place the cursor after a partial
      native name (e.g. retype `GetEntityCoords`) to see completion; hover any native for docs.
    - **Wrong-side diagnostics** — both `client/main.lua` (`DropPlayer`, server-only) and

@@ -3,18 +3,15 @@ import { Logger } from '../utils/logger';
 import { normalizePathKey } from '../utils/paths';
 import { normalizeFxGlobToVscodeGlob } from './glob';
 import { parseManifest } from './manifestParser';
+import { resolveRequiredFiles } from './requireResolver';
 import { ResourceScanner } from './resourceScanner';
-import { FileContextEntry, ParsedManifest, ResourceRoot, ScriptContext } from './types';
+import { mergeContext } from './scriptContext';
+import { ContextSource, FileContextEntry, ParsedManifest, ResourceRoot, ScriptContext } from './types';
 
 interface ResourceState {
   root: ResourceRoot;
   manifest: ParsedManifest;
-  fileContexts: Map<string, ScriptContext>; // key: file fsPath
-}
-
-function mergeContext(existing: ScriptContext, incoming: ScriptContext): ScriptContext {
-  if (existing === incoming) return existing;
-  return 'shared'; // a file listed under both client and server is effectively shared
+  fileContexts: Map<string, { context: ScriptContext; via: ContextSource }>; // key: file fsPath
 }
 
 /**
@@ -42,6 +39,13 @@ export class ContextIndex implements vscode.Disposable {
 
   async initialBuild(): Promise<void> {
     await Promise.all(this.scanner.resources.map((r) => this.rebuildResource(r)));
+  }
+
+  /** Re-resolves the resource owning `fsPath`, if any. Needed on save (not just file
+   * add/delete) because require() resolution depends on file *content*, not just its presence. */
+  async refreshForFile(fsPath: string): Promise<void> {
+    const root = this.scanner.getResourceForFile(fsPath);
+    if (root) await this.rebuildResource(root);
   }
 
   getFileContext(uri: vscode.Uri): FileContextEntry | undefined {
@@ -85,14 +89,26 @@ export class ContextIndex implements vscode.Disposable {
       this.resolvePatterns(root, manifest.sharedPatterns),
     ]);
 
-    const fileContexts = new Map<string, ScriptContext>();
-    for (const f of sharedFiles) fileContexts.set(f, 'shared');
+    const directContexts = new Map<string, ScriptContext>();
+    for (const f of sharedFiles) directContexts.set(f, 'shared');
     for (const f of clientFiles) {
-      fileContexts.set(f, fileContexts.has(f) ? mergeContext(fileContexts.get(f)!, 'client') : 'client');
+      directContexts.set(f, directContexts.has(f) ? mergeContext(directContexts.get(f)!, 'client') : 'client');
     }
     for (const f of serverFiles) {
-      fileContexts.set(f, fileContexts.has(f) ? mergeContext(fileContexts.get(f)!, 'server') : 'server');
+      directContexts.set(f, directContexts.has(f) ? mergeContext(directContexts.get(f)!, 'server') : 'server');
     }
+
+    let requiredContexts: Map<string, ScriptContext>;
+    try {
+      requiredContexts = await resolveRequiredFiles(root, directContexts);
+    } catch (err) {
+      this.log.warn(`Failed to resolve require() graph for '${root.name}': ${String(err)}`);
+      requiredContexts = new Map();
+    }
+
+    const fileContexts = new Map<string, { context: ScriptContext; via: ContextSource }>();
+    for (const [fsPath, context] of directContexts) fileContexts.set(fsPath, { context, via: 'manifest' });
+    for (const [fsPath, context] of requiredContexts) fileContexts.set(fsPath, { context, via: 'require' });
 
     const resourceKey = normalizePathKey(root.uri.fsPath);
     const previous = this.resourceStates.get(resourceKey);
@@ -104,8 +120,8 @@ export class ContextIndex implements vscode.Disposable {
         changedFsPaths.add(fsPath);
       }
     }
-    for (const [fsPath, context] of fileContexts) {
-      this.fileIndex.set(fsPath, { context, resource: root });
+    for (const [fsPath, entry] of fileContexts) {
+      this.fileIndex.set(fsPath, { context: entry.context, via: entry.via, resource: root });
       changedFsPaths.add(fsPath);
     }
 
