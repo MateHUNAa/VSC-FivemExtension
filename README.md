@@ -26,11 +26,37 @@ exports/event IntelliSense across resources in the workspace.
 - **Exports & event IntelliSense** — `exports['resource']:method()` and `exports.resource:method()`
   both resolve to real completions sourced from that resource's `exports(...)` declarations
   anywhere in the workspace; event name completion inside `TriggerEvent`/`RegisterNetEvent`/etc.
+- **Go-to-definition & hover for exports/events** — F12 (or Ctrl+click) on an
+  `exports['resource']:method()` call jumps straight to its `exports(...)` declaration. Events work
+  in **both directions**: on an event-name string inside `TriggerEvent`/`TriggerServerEvent`/
+  `TriggerClientEvent`/etc. it jumps to every `RegisterNetEvent`/`AddEventHandler` that handles it;
+  standing on the `RegisterNetEvent`/`AddEventHandler` itself instead jumps to every call site that
+  triggers it. Either direction can resolve to more than one location (e.g. a client and a server
+  handler for the same event name), in which case VS Code shows its normal multi-location peek
+  list. Hovering either side shows the same info inline without jumping.
+- **"N triggers" / "N handlers" CodeLens** — every `RegisterNetEvent`/`AddEventHandler` line gets a
+  clickable CodeLens counting how many `TriggerEvent`-family call sites fire it (and the matching
+  `TriggerEvent`/`TriggerServerEvent`/etc. line gets one counting its handlers), so the list is
+  visible without first knowing to invoke go-to-definition. Clicking it opens VS Code's built-in
+  references peek view with every location one click away. A line with zero matches on the other
+  side gets no lens at all, rather than a misleading "0" (this is a regex-based index, not a
+  guarantee nothing calls it). Toggle with `perfectFivem.imports.enableEventCodeLens`.
+- **Workspace symbol search** — every indexed export and event shows up in "Go to Symbol in
+  Workspace…" (Ctrl+T), so you can jump to one by name without knowing which resource declares it.
+- **Rename exports & events** — F2 on an export's declaration or any `exports[...]:name()` call
+  site renames it everywhere in the workspace in one edit (the declaration plus every call site,
+  even across resources). F2 on an event-name string renames that literal everywhere it's used,
+  across every `RegisterNetEvent`/`AddEventHandler`/`TriggerEvent`/`TriggerServerEvent`/
+  `TriggerClientEvent`/`TriggerLatent*Event` call in the workspace.
 - **Lightweight OOP completion** — `Table:Method()` / `Table.Method()` completion from
   `function Table:Method(...)` declarations elsewhere in the same resource (see below for how
   this relates to installing a real Lua language server, which is still the complete solution).
 - **Diagnostics** — warns when a native, or a one-sided CitizenFX runtime event function
   (`TriggerClientEvent`, `TriggerServerEvent`, ...), is used on the wrong side.
+- **Quick fixes** — a wrong-side `TriggerServerEvent`/`TriggerClientEvent`/`TriggerLatent*Event`
+  warning offers a one-click fix to swap it for the correct counterpart; any of this extension's
+  diagnostics can also be suppressed on just that line (adds a trailing
+  `-- perfectfivem-ignore` comment, which the diagnostics pass itself respects).
 - **RCON restart-on-save** — connect to your FiveM server's RCON and every file save
   automatically runs `refresh; ensure <resource>` for the *exact* resource that owns the saved
   file, using a native implementation of FiveM's RCON wire protocol (see below).
@@ -40,8 +66,12 @@ exports/event IntelliSense across resources in the workspace.
 ```
 ResourceScanner  --(roots, manifest/file-change events)-->  ContextIndex  --(file->context map)-->  FileDecorationProvider
       |                                                            |                                        Completion/Hover/SignatureHelp
-      |                                                            +--> NativeContextDiagnostics
+      |                                                            +--> NativeContextDiagnostics --> NativeQuickFixProvider
       +--(roots)--> ExportsIndexer --(exports/events per resource)--> ExportsCompletionProvider / EventNameCompletionProvider
+                                                                   +--> ExportsEventsDefinitionProvider / ExportsEventsHoverProvider
+                                                                   +--> ImportsWorkspaceSymbolProvider
+                                                                   +--> ImportsEventCodeLensProvider
+                                                                   +--> ImportsRenameProvider (also scans the whole workspace directly)
 
 NativesDatabase (loads data/natives.json once) --> shared by all native-facing providers
 ```
@@ -117,7 +147,8 @@ All of it is glued in `src/extension.ts`'s `activate()`:
 - `contributes.commands` — `perfectFivem.rescanWorkspace`, `perfectFivem.refreshNativesDatabase`,
   `perfectFivem.showResourceInfo`, and the `perfectFivem.rcon.*` commands below.
 - File decorations and language providers (`CompletionItemProvider`, `HoverProvider`,
-  `SignatureHelpProvider`) are registered **programmatically** in `activate()`, not declared in
+  `SignatureHelpProvider`, `DefinitionProvider`, `WorkspaceSymbolProvider`, `RenameProvider`,
+  `CodeActionProvider`) are registered **programmatically** in `activate()`, not declared in
   `package.json` — VS Code has no static contribution point for them.
 
 ## OOP / metatable completion (`Table:Method()`)
@@ -179,6 +210,51 @@ real, permanent fix for that class of module is EmmyLua type annotations in the 
 real language server full hover/signature/type info; this extension's own discovery aid is only a
 fallback for what isn't annotated (yet).
 
+## Exports & events: definition, hover, workspace symbols, CodeLens, rename
+
+All five features build on the same two building blocks already used by completion:
+`ExportsIndexer`'s per-resource declaration lists, and three small position-aware detectors added
+to `src/imports/importParser.ts` (`findExportsCallAt`, `findExportDeclarationAt`,
+`findEventLiteralAt`) that, given a line of text and a cursor offset, report whether the cursor
+sits inside an export call/declaration or an event-name string literal — and the exact offset
+range of just that name, not the whole call.
+
+`EventEntry.kind` is `'register'` for `RegisterNetEvent`/`AddEventHandler` and `'trigger'` for the
+`TriggerEvent` family - `ExportsIndexer` indexes both per resource (previously only registrations
+were indexed, since only completion needed them). `findEventLiteralAt` also reports which kind the
+cursor is on, so `ExportsEventsDefinitionProvider`/`ExportsEventsHoverProvider`
+(`src/imports/importDefinitionHoverProvider.ts`) can look up the *opposite* kind and work
+symmetrically: standing on a trigger call resolves to its handler(s), standing on a handler
+resolves to its trigger call site(s). `ImportsEventCodeLensProvider`
+(`src/imports/importEventCodeLensProvider.ts`) surfaces the same opposite-kind lookup as an
+always-visible "N triggers"/"N handlers" CodeLens (skipped entirely at zero, rather than showing a
+possibly-misleading "0"), wired to VS Code's built-in `editor.action.showReferences` peek command
+so clicking it opens the same multi-location list `provideDefinition` would. `ImportsWorkspaceSymbolProvider`
+(`src/imports/importWorkspaceSymbolProvider.ts`) only surfaces `'register'`-kind entries as
+symbols — a symbol per trigger call site would just be noise, and those are already one click away
+via go-to-definition/CodeLens. All of the above are thin reads over the existing index — no new
+scanning.
+
+`ImportsRenameProvider` (`src/imports/importRenameProvider.ts`) is the one exception: a rename can
+touch call sites in resources `ExportsIndexer` never associates with each other, so
+`provideRenameEdits` does its own `vscode.workspace.findFiles('**/*.lua', ...)` scan (honoring
+`perfectFivem.resourceDetection.excludeGlobs`) independent of the index, builds a single
+`WorkspaceEdit` covering every file, and lets VS Code apply it atomically:
+
+- **Export rename** — the declaration (`exports('name', ...)` / `exports.name = function`) is
+  only searched for inside the owning resource's own files; call sites
+  (`exports['resource']:name(...)` / `exports.resource:name(...)` / `exports.resource.name(...)`)
+  are searched for across the whole workspace, since any resource can call into any other. The new
+  name must be a valid Lua identifier.
+- **Event rename** — FiveM events aren't namespaced by resource (they're just string keys), so
+  every `RegisterNetEvent`/`AddEventHandler`/`TriggerEvent`/`TriggerServerEvent`/
+  `TriggerClientEvent`/`TriggerLatent*Event` call anywhere in the workspace whose string argument
+  matches gets updated, regardless of which resource it's in. The new name just can't be empty or
+  contain a quote character (colons, e.g. `esx:playerLoaded`, are normal and allowed).
+
+Like the rest of the extension, this is regex-over-text, not a real parser — a rename can't tell a
+genuine call from a coincidentally identical string sitting in a comment or an unrelated context.
+
 ## RCON restart-on-save
 
 FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc
@@ -222,7 +298,8 @@ channel after saving a file if you're unsure.
 | `perfectFivem.natives.databasePath` | `""` | Absolute path to a custom normalized `natives.json`; empty uses the bundled one. |
 | `perfectFivem.natives.enableDiagnostics` | `true` | Wrong-side native warnings. |
 | `perfectFivem.natives.deprecatedOverrides` | `[]` | Extra native names to flag as deprecated. |
-| `perfectFivem.imports.enable` | `true` | Exports/event IntelliSense. |
+| `perfectFivem.imports.enable` | `true` | Exports/event IntelliSense, go-to-definition/hover, workspace symbols, rename. |
+| `perfectFivem.imports.enableEventCodeLens` | `true` | "N triggers"/"N handlers" CodeLens above event calls. |
 | `perfectFivem.oop.enable` | `true` | Lightweight `Table:Method()` / `Table.Method()` completion from same-resource declarations. |
 | `perfectFivem.rcon.enable` | `true` | RCON status bar item, commands, and restart-on-save. |
 | `perfectFivem.rcon.host` | `"127.0.0.1"` | FiveM server RCON host. |
@@ -279,6 +356,11 @@ Run `npm run update-natives` to re-fetch and regenerate `data/natives.json`.
   engine RCON) — only point it at `127.0.0.1` or a server reachable over a trusted/VPN network,
   never over the open internet.
 - The base natives' `client`-only default (see above) is a heuristic, not sourced data.
+- Rename (F2) and the "Ignore this warning" quick fix are regex-over-text like everything else
+  here: a rename can't distinguish a genuine call from the same text appearing in a comment or
+  string, and event rename in particular touches the whole workspace since FiveM events aren't
+  resource-scoped. Review the proposed edit set (VS Code shows a diff preview before applying)
+  rather than trusting it blindly on a large workspace.
 
 ## Development
 
@@ -316,6 +398,23 @@ Development Host:
      and `multiply` completions sourced from `test_lib/init.lua`.
    - **Event completion** — retype the string argument in `TriggerServerEvent('test:ping')` to
      see event-name completion.
+   - **Go-to-definition & hover** — in `client/main.lua`, F12 (or hover) on `add`/`multiply` in
+     `exports['test_lib']:add(...)` jumps to (or previews) the matching `exports(...)` in
+     `test_lib/init.lua`; F12 on `'test:ping'` inside `TriggerServerEvent` jumps to its
+     `RegisterNetEvent('test:ping')` handler in `server/main.lua` — and, the other direction, F12 on
+     `'test:ping'` inside that `RegisterNetEvent` jumps back to the `TriggerServerEvent` call site.
+   - **Event CodeLens** — confirm `RegisterNetEvent('test:ping')` in `server/main.lua` shows a
+     "1 trigger" CodeLens above it, and `TriggerServerEvent('test:ping')` in `client/main.lua` shows
+     a "1 handler" CodeLens; click either to open the references peek list and jump across.
+   - **Workspace symbols** — Ctrl+T, type `add` or `test:ping`, confirm the export/event shows up
+     with `test_lib`/`test_resource` as its container.
+   - **Rename** — F2 on `add` in `test_lib/init.lua`'s `exports('add', ...)` declaration, rename
+     to something else, and confirm the `exports['test_lib']:add(...)` call site in
+     `client/main.lua` updates too, in the same edit.
+   - **Quick fixes** — swap `TriggerServerEvent`/`TriggerClientEvent` for the wrong side in one of
+     the sample files to trigger the wrong-side warning, then use the lightbulb / Ctrl+. menu to
+     confirm both the "Change to '...'" swap fix and the "Ignore this warning on this line" fix
+     are offered and work.
    - **`Perfect FiveM: Show Resource Info for Current File`** (Command Palette) — sanity-checks
      context/manifest/import detection for whichever file is active.
    - **RCON** — needs a real FiveM server (see the "RCON restart-on-save" section above); point

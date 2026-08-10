@@ -5,7 +5,9 @@ import { Logger } from '../utils/logger';
 
 const EXPORT_CALL_RE = /exports\s*\(\s*['"]([^'"]+)['"]\s*,\s*function\s*\(([^)]*)\)/g;
 const EXPORT_ASSIGN_RE = /exports\.([A-Za-z_][\w]*)\s*=\s*function\s*\(([^)]*)\)/g;
-const EVENT_DECL_RE = /\b(?:RegisterNetEvent|AddEventHandler)\s*\(\s*['"]([^'"]+)['"]/g;
+const EVENT_REGISTER_RE = /\b(?:RegisterNetEvent|AddEventHandler)\s*\(\s*['"]([^'"]+)['"]/g;
+const EVENT_TRIGGER_RE =
+  /\b(?:TriggerEvent|TriggerServerEvent|TriggerClientEvent|TriggerLatentServerEvent|TriggerLatentClientEvent)\s*\(\s*['"]([^'"]+)['"]/g;
 
 function offsetToLine(text: string, offset: number): number {
   let line = 0;
@@ -54,18 +56,26 @@ function extractExports(text: string, resourceName: string, fileUri: vscode.Uri)
 function extractEvents(text: string, resourceName: string, fileUri: vscode.Uri): EventEntry[] {
   const out: EventEntry[] = [];
   let m: RegExpExecArray | null;
-  EVENT_DECL_RE.lastIndex = 0;
-  while ((m = EVENT_DECL_RE.exec(text))) {
+
+  EVENT_REGISTER_RE.lastIndex = 0;
+  while ((m = EVENT_REGISTER_RE.exec(text))) {
     out.push({ name: m[1], resourceName, fileUri, line: offsetToLine(text, m.index), kind: 'register' });
   }
+
+  EVENT_TRIGGER_RE.lastIndex = 0;
+  while ((m = EVENT_TRIGGER_RE.exec(text))) {
+    out.push({ name: m[1], resourceName, fileUri, line: offsetToLine(text, m.index), kind: 'trigger' });
+  }
+
   return out;
 }
 
 /**
- * Indexes `exports('name', function(...) end)` / `exports.name = function(...) end` and
- * `RegisterNetEvent`/`AddEventHandler` declarations per resource, so importCompletionProvider
- * can offer real completions after `exports['resource']:` / `exports.resource.` and inside
- * TriggerEvent-style string literals.
+ * Indexes `exports('name', function(...) end)` / `exports.name = function(...) end` declarations,
+ * `RegisterNetEvent`/`AddEventHandler` registrations, and `TriggerEvent`-family call sites, all
+ * per resource - so importCompletionProvider can offer real completions after
+ * `exports['resource']:` / `exports.resource.` and inside event-name string literals, and so
+ * go-to-definition/hover/CodeLens can jump between a handler and the calls that trigger it.
  */
 export class ExportsIndexer implements vscode.Disposable {
   private exportsByResourcePath = new Map<string, ExportEntry[]>(); // key: resource folder fsPath
@@ -102,6 +112,14 @@ export class ExportsIndexer implements vscode.Disposable {
       }
     }
     return [...names];
+  }
+
+  getAllExports(): ExportEntry[] {
+    return [...this.exportsByResourceName.values()].flat();
+  }
+
+  getAllEvents(): EventEntry[] {
+    return [...this.eventsByResourcePath.values()].flat();
   }
 
   private async indexResource(root: ResourceRoot): Promise<void> {

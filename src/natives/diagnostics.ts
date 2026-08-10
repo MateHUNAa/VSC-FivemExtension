@@ -18,6 +18,17 @@ const RUNTIME_EVENT_FUNCTION_SIDE: Record<string, ScriptContext> = {
 };
 
 const CALL_RE = /\b([A-Z][A-Za-z0-9]*)\s*\(/g;
+const SUPPRESS_LINE_RE = /--\s*perfectfivem-ignore\b/i;
+
+export const DIAGNOSTIC_SOURCE = 'Perfect FiveM';
+
+/** Stable `diagnostic.code` values so code-action providers can match on intent instead of
+ * parsing the human-readable message. */
+export const enum DiagnosticCode {
+  WrongSideRuntimeFunction = 'wrong-side-runtime-function',
+  WrongSideNative = 'wrong-side-native',
+  DeprecatedNative = 'deprecated-native',
+}
 
 /**
  * Flags natives (and the handful of one-sided CitizenFX runtime event functions above) used on
@@ -60,16 +71,19 @@ export class NativeContextDiagnostics implements vscode.Disposable {
       const endPos = document.positionAt(match.index + name.length);
       const range = new vscode.Range(startPos, endPos);
 
+      if (SUPPRESS_LINE_RE.test(document.lineAt(startPos.line).text)) continue;
+
       const requiredSide = RUNTIME_EVENT_FUNCTION_SIDE[name];
       if (requiredSide) {
         if (!isAllowedInContext(requiredSide, fileContext)) {
-          diagnostics.push(
-            new vscode.Diagnostic(
-              range,
-              `'${name}' is meant to be called from ${requiredSide}-side code, not from this ${fileContext} script.`,
-              vscode.DiagnosticSeverity.Warning,
-            ),
+          const d = new vscode.Diagnostic(
+            range,
+            `'${name}' is meant to be called from ${requiredSide}-side code, not from this ${fileContext} script.`,
+            vscode.DiagnosticSeverity.Warning,
           );
+          d.source = DIAGNOSTIC_SOURCE;
+          d.code = DiagnosticCode.WrongSideRuntimeFunction;
+          diagnostics.push(d);
         }
         continue;
       }
@@ -80,20 +94,22 @@ export class NativeContextDiagnostics implements vscode.Disposable {
       const allowed = entries.filter((e) => isAllowedInContext(e.apiset, fileContext));
       if (!allowed.length) {
         const sides = [...new Set(entries.map((e) => e.apiset))].join('/');
-        diagnostics.push(
-          new vscode.Diagnostic(
-            range,
-            `'${name}' is a ${sides}-side native and is not available in this ${fileContext} script.`,
-            vscode.DiagnosticSeverity.Warning,
-          ),
+        const d = new vscode.Diagnostic(
+          range,
+          `'${name}' is a ${sides}-side native and is not available in this ${fileContext} script.`,
+          vscode.DiagnosticSeverity.Warning,
         );
+        d.source = DIAGNOSTIC_SOURCE;
+        d.code = DiagnosticCode.WrongSideNative;
+        diagnostics.push(d);
         continue;
       }
 
       if (BUILTIN_DEPRECATED.has(name) || deprecatedOverrides.has(name)) {
-        diagnostics.push(
-          new vscode.Diagnostic(range, `'${name}' is deprecated.`, vscode.DiagnosticSeverity.Hint),
-        );
+        const d = new vscode.Diagnostic(range, `'${name}' is deprecated.`, vscode.DiagnosticSeverity.Hint);
+        d.source = DIAGNOSTIC_SOURCE;
+        d.code = DiagnosticCode.DeprecatedNative;
+        diagnostics.push(d);
       }
     }
 

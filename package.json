@@ -127,7 +127,12 @@
         "perfectFivem.imports.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable IntelliSense for exports('name', ...) / exports.name = ... consumed via exports['resource']:method() or exports.resource:method(), and for @resource/path imports declared in fxmanifest script arrays."
+          "description": "Enable IntelliSense for exports('name', ...) / exports.name = ... consumed via exports['resource']:method() or exports.resource:method(), and for @resource/path imports declared in fxmanifest script arrays. Also enables go-to-definition/hover/workspace symbols/rename for exports and events."
+        },
+        "perfectFivem.imports.enableEventCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a clickable 'N triggers'/'N handlers' CodeLens above RegisterNetEvent/AddEventHandler and TriggerEvent-family calls. Requires perfectFivem.imports.enable."
         },
         "perfectFivem.oop.enable": {
           "type": "boolean",

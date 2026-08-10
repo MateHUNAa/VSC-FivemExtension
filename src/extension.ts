@@ -4,7 +4,12 @@ import { ResourceScanner } from './core/resourceScanner';
 import { ContextFileDecorationProvider } from './decorations/fileDecorationProvider';
 import { ExportsIndexer } from './imports/exportsIndexer';
 import { ExportsCompletionProvider, EventNameCompletionProvider } from './imports/importCompletionProvider';
+import { ExportsEventsDefinitionProvider, ExportsEventsHoverProvider } from './imports/importDefinitionHoverProvider';
+import { ImportsEventCodeLensProvider } from './imports/importEventCodeLensProvider';
+import { ImportsRenameProvider } from './imports/importRenameProvider';
+import { ImportsWorkspaceSymbolProvider } from './imports/importWorkspaceSymbolProvider';
 import { NativeCompletionProvider } from './natives/completionProvider';
+import { NativeQuickFixProvider } from './natives/codeActionProvider';
 import { NativeContextDiagnostics } from './natives/diagnostics';
 import { NativeHoverProvider } from './natives/hoverProvider';
 import { NativesDatabase } from './natives/nativesDatabase';
@@ -67,6 +72,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, completionProvider),
       vscode.languages.registerHoverProvider(LUA_SELECTOR, hoverProvider),
       vscode.languages.registerSignatureHelpProvider(LUA_SELECTOR, signatureHelpProvider, '(', ','),
+      vscode.languages.registerCodeActionsProvider(LUA_SELECTOR, new NativeQuickFixProvider(), {
+        providedCodeActionKinds: NativeQuickFixProvider.providedCodeActionKinds,
+      }),
     );
   }
 
@@ -74,10 +82,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (config.get<boolean>('imports.enable', true)) {
     const exportsCompletionProvider = new ExportsCompletionProvider(exportsIndex);
     const eventCompletionProvider = new EventNameCompletionProvider(exportsIndex);
+    const exportsEventsDefinitionProvider = new ExportsEventsDefinitionProvider(exportsIndex);
+    const exportsEventsHoverProvider = new ExportsEventsHoverProvider(exportsIndex);
+    const importsWorkspaceSymbolProvider = new ImportsWorkspaceSymbolProvider(exportsIndex);
+    const importsRenameProvider = new ImportsRenameProvider(contextIndex);
     context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, exportsCompletionProvider, '.', ':'),
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, eventCompletionProvider, "'", '"'),
+      vscode.languages.registerDefinitionProvider(LUA_SELECTOR, exportsEventsDefinitionProvider),
+      vscode.languages.registerHoverProvider(LUA_SELECTOR, exportsEventsHoverProvider),
+      vscode.languages.registerWorkspaceSymbolProvider(importsWorkspaceSymbolProvider),
+      vscode.languages.registerRenameProvider(LUA_SELECTOR, importsRenameProvider),
     );
+
+    if (config.get<boolean>('imports.enableEventCodeLens', true)) {
+      const importsEventCodeLensProvider = new ImportsEventCodeLensProvider(exportsIndex);
+      context.subscriptions.push(vscode.languages.registerCodeLensProvider(LUA_SELECTOR, importsEventCodeLensProvider));
+    }
   }
 
   // --- Lightweight local OOP/table-method completion ---------------------------
@@ -236,7 +257,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Feature toggles are read once at activation; prompt for a reload if they change.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      const toggles = ['decorations.enable', 'natives.enable', 'imports.enable', 'rcon.enable', 'oop.enable'];
+      const toggles = [
+        'decorations.enable',
+        'natives.enable',
+        'imports.enable',
+        'imports.enableEventCodeLens',
+        'rcon.enable',
+        'oop.enable',
+      ];
       if (toggles.some((t) => e.affectsConfiguration(`perfectFivem.${t}`))) {
         vscode.window
           .showInformationMessage('Perfect FiveM: reload the window for this setting to take effect.', 'Reload Window')
