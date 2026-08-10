@@ -24,7 +24,9 @@ export interface NativeEntry {
 
 interface RawNative {
   hash: string;
-  name: string;
+  // Untrusted input (bundled data may include upstream gaps; a custom databasePath is fully
+  // user-supplied) - some entries are legitimately unnamed/hash-only. See the null check in load().
+  name: string | null;
   ns: string;
   apiset: NativeApiSet;
   params: NativeParam[];
@@ -126,9 +128,17 @@ export class NativesDatabase implements vscode.Disposable {
       const bytes = await vscode.workspace.fs.readFile(uri);
       const raw = JSON.parse(Buffer.from(bytes).toString('utf8')) as RawNativesFile;
       const next = new Map<string, NativeEntry[]>();
+      let skipped = 0;
       for (const n of raw.natives) {
+        // Undocumented/hash-only natives (no name) have no Lua calling convention and can't
+        // be indexed by name - skip rather than let one bad entry (e.g. a custom
+        // natives.databasePath) abort the whole load.
+        if (!n.name) {
+          skipped++;
+          continue;
+        }
         const luaName = toLuaName(n.name);
-        const entry: NativeEntry = { ...n, luaName };
+        const entry: NativeEntry = { ...n, name: n.name, luaName };
         const key = luaName.toLowerCase();
         const arr = next.get(key);
         if (arr) arr.push(entry);
@@ -136,7 +146,9 @@ export class NativesDatabase implements vscode.Disposable {
       }
       this.byLuaNameLower = next;
       this.loaded = true;
-      this.log.info(`Loaded ${raw.count} natives from ${uri.fsPath}`);
+      this.log.info(
+        `Loaded ${raw.natives.length - skipped} natives from ${uri.fsPath}${skipped ? ` (skipped ${skipped} unnamed entries)` : ''}`,
+      );
     } catch (err) {
       this.log.error(`Failed to load natives database from ${uri.fsPath}`, err);
       this.loaded = false;

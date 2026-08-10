@@ -24,5 +24,3 @@ TriggerServerEvent('test:ping')
 
 
 ExecuteCommand("testlib")
-
-

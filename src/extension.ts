@@ -9,6 +9,8 @@ import { NativeContextDiagnostics } from './natives/diagnostics';
 import { NativeHoverProvider } from './natives/hoverProvider';
 import { NativesDatabase } from './natives/nativesDatabase';
 import { NativeSignatureHelpProvider } from './natives/signatureHelpProvider';
+import { TableMethodCompletionProvider } from './oop/tableMethodCompletionProvider';
+import { TableMethodIndexer } from './oop/tableMethodIndexer';
 import { RconManager } from './rcon/rconManager';
 import { Logger } from './utils/logger';
 import { normalizePathKey } from './utils/paths';
@@ -23,14 +25,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const scanner = new ResourceScanner(log);
   const contextIndex = new ContextIndex(scanner, log);
   const exportsIndex = new ExportsIndexer(scanner, log);
+  const tableMethodIndexer = new TableMethodIndexer(scanner, log);
   const nativesDb = new NativesDatabase(context.extensionUri, log);
-  context.subscriptions.push(scanner, contextIndex, exportsIndex, nativesDb);
+  context.subscriptions.push(scanner, contextIndex, exportsIndex, tableMethodIndexer, nativesDb);
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Window, title: 'Perfect FiveM: scanning workspace…' },
     async () => {
       await scanner.initialScan();
-      await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild(), nativesDb.ensureLoaded()]);
+      await Promise.all([
+        contextIndex.initialBuild(),
+        exportsIndex.initialBuild(),
+        tableMethodIndexer.initialBuild(),
+        nativesDb.ensureLoaded(),
+      ]);
     },
   );
   log.info(`Ready: ${scanner.resources.length} resource(s), ${nativesDb.size} natives indexed.`);
@@ -38,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await scanner.initialScan();
-      await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild()]);
+      await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild(), tableMethodIndexer.initialBuild()]);
     }),
   );
 
@@ -69,6 +77,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, exportsCompletionProvider, '.', ':'),
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, eventCompletionProvider, "'", '"'),
+    );
+  }
+
+  // --- Lightweight local OOP/table-method completion ---------------------------
+  if (config.get<boolean>('oop.enable', true)) {
+    const tableMethodCompletionProvider = new TableMethodCompletionProvider(tableMethodIndexer, scanner);
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, tableMethodCompletionProvider, '.', ':'),
     );
   }
 
@@ -152,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { location: vscode.ProgressLocation.Notification, title: 'Perfect FiveM: rescanning workspace…' },
         async () => {
           await scanner.initialScan();
-          await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild()]);
+          await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild(), tableMethodIndexer.initialBuild()]);
         },
       );
       vscode.window.showInformationMessage(`Perfect FiveM: found ${scanner.resources.length} resource(s).`);
@@ -194,7 +210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Feature toggles are read once at activation; prompt for a reload if they change.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      const toggles = ['decorations.enable', 'natives.enable', 'imports.enable', 'rcon.enable'];
+      const toggles = ['decorations.enable', 'natives.enable', 'imports.enable', 'rcon.enable', 'oop.enable'];
       if (toggles.some((t) => e.affectsConfiguration(`perfectFivem.${t}`))) {
         vscode.window
           .showInformationMessage('Perfect FiveM: reload the window for this setting to take effect.', 'Reload Window')

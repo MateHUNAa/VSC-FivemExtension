@@ -12,15 +12,18 @@ exports/event IntelliSense across resources in the workspace.
   are parsed (globs, nested paths, comments, multi-line tables all handled) into a concrete
   file → `client` / `server` / `shared` map. A file listed under both client and server is
   treated as `shared`.
-- **Context-aware native IntelliSense** — completion, hover and signature help for ~7,300
+- **Context-aware native IntelliSense** — completion, hover and signature help for ~6,300 named
   FiveM/GTA natives, filtered to what's actually callable from the file you're editing.
 - **Explorer decorations** — Lua files get a `C` / `S` / `SH` badge in the file tree, read
   straight from the precomputed index (no re-parsing on every repaint).
 - **Exports & event IntelliSense** — `exports['resource']:method()` and `exports.resource:method()`
   both resolve to real completions sourced from that resource's `exports(...)` declarations
   anywhere in the workspace; event name completion inside `TriggerEvent`/`RegisterNetEvent`/etc.
-- **Diagnostics** — warns when a native is used on the wrong side (e.g. a server-only native
-  called from a client script).
+- **Lightweight OOP completion** — `Table:Method()` / `Table.Method()` completion from
+  `function Table:Method(...)` declarations elsewhere in the same resource (see below for how
+  this relates to installing a real Lua language server, which is still the complete solution).
+- **Diagnostics** — warns when a native, or a one-sided CitizenFX runtime event function
+  (`TriggerClientEvent`, `TriggerServerEvent`, ...), is used on the wrong side.
 - **RCON restart-on-save** — connect to your FiveM server's RCON and every file save
   automatically runs `refresh; ensure <resource>` for the *exact* resource that owns the saved
   file, using a native implementation of FiveM's RCON wire protocol (see below).
@@ -110,6 +113,38 @@ All of it is glued in [src/extension.ts](src/extension.ts)'s `activate()`:
   `SignatureHelpProvider`) are registered **programmatically** in `activate()`, not declared in
   `package.json` — VS Code has no static contribution point for them.
 
+## OOP / metatable completion (`Table:Method()`)
+
+**Perfect FiveM does not do general Lua static analysis** — it has no parser, no scope
+resolution, no type inference. Everything it knows about comes from pattern matching
+(fxmanifest scripts, `exports(...)` calls, native names). That's a deliberate scope boundary,
+not an oversight: real understanding of your own code's tables, metatables, and OOP-style
+modules (`local Rpc = {}`, `function Rpc:Register(...)`) is what a full **Lua language server**
+is for, and reimplementing one is a different project entirely.
+
+**For real OOP/metatable completion, hover, and go-to-definition, install the actual language
+server:** [`overextended.cfxlua-vscode`](vendor/cfxlua-vscode) from the VS Code Marketplace
+(search "CfxLua IntelliSense"). It declares [`sumneko.lua`](https://marketplace.visualstudio.com/items?itemName=sumneko.lua)
+(the LuaLS engine — see [vendor/lua-language-server](vendor/lua-language-server)) as an
+extension dependency, so installing it pulls in the real language server automatically and
+configures it for the Cfx Lua runtime. Install it in your normal VS Code (not inside the
+Extension Development Host) — the dev host inherits your normally-installed extensions unless
+launched with `--disable-extensions`, so it'll be picked up on the next `F5`. It runs
+side by side with Perfect FiveM without conflict: cfxlua-vscode/LuaLS owns general Lua
+understanding (including your `Table:Method()` completions with full accuracy), Perfect FiveM
+layers FiveM-specific context (native filtering by client/server/shared, resource-aware exports,
+restart-on-save, ...) on top. Both register completion providers for the same `lua` language
+and VS Code just merges their suggestions.
+
+**Perfect FiveM also ships a small, honestly-scoped complement to this**, useful even with the
+real language server installed since it's aware of resource boundaries in a way a generic LSP
+isn't: [src/oop/tableMethodIndexer.ts](src/oop/tableMethodIndexer.ts) scans a resource's Lua
+files for `function Table:Method(...)` / `function Table.Method(...)` declarations (the same
+regex-over-text approach as the exports indexer) and offers completion after `Table:` / `Table.`
+anywhere else in that resource. There's no type inference — a table name match is all it takes,
+so it can over-suggest if two unrelated tables in the same resource happen to share a name.
+Toggle with `perfectFivem.oop.enable`.
+
 ## RCON restart-on-save
 
 FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc
@@ -154,6 +189,7 @@ channel after saving a file if you're unsure.
 | `perfectFivem.natives.enableDiagnostics` | `true` | Wrong-side native warnings. |
 | `perfectFivem.natives.deprecatedOverrides` | `[]` | Extra native names to flag as deprecated. |
 | `perfectFivem.imports.enable` | `true` | Exports/event IntelliSense. |
+| `perfectFivem.oop.enable` | `true` | Lightweight `Table:Method()` / `Table.Method()` completion from same-resource declarations. |
 | `perfectFivem.rcon.enable` | `true` | RCON status bar item, commands, and restart-on-save. |
 | `perfectFivem.rcon.host` | `"127.0.0.1"` | FiveM server RCON host. |
 | `perfectFivem.rcon.port` | `30120` | FiveM server RCON port. |

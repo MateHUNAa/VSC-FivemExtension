@@ -28,6 +28,13 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "lua",
+        "aliases": ["Lua"],
+        "extensions": [".lua"]
+      }
+    ],
     "configuration": {
       "title": "Perfect FiveM",
       "properties": {
@@ -75,6 +82,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable IntelliSense for exports('name', ...) / exports.name = ... consumed via exports['resource']:method() or exports.resource:method(), and for @resource/path imports declared in fxmanifest script arrays."
+        },
+        "perfectFivem.oop.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lightweight completion after Table: / Table. for local `function Table:Method(...)` / `function Table.Method(...)` declarations found elsewhere in the same resource. Pattern-based only, no type inference - a real Lua language server (e.g. cfxlua-vscode) is the complete solution; see the README."
         },
         "perfectFivem.rcon.enable": {
           "type": "boolean",

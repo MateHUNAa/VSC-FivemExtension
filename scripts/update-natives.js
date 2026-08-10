@@ -38,6 +38,10 @@ function addNatives(merged, natives_by_ns, defaultApiset) {
     const natives = natives_by_ns[ns];
     for (const hash of Object.keys(natives)) {
       const n = natives[hash];
+      // Undocumented/hash-only natives have no name and so no Lua calling convention
+      // (GET_ENTITY_COORDS -> GetEntityCoords) - they're useless for name-based completion,
+      // and a null name crashes toLuaName() at runtime. Skip them entirely.
+      if (!n.name) continue;
       const key = n.hash || hash;
       const entry = {
         hash: key,
