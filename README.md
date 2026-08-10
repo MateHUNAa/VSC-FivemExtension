@@ -223,6 +223,20 @@ channel after saving a file if you're unsure.
 | `perfectFivem.rcon.autoRestartOnSave` | `true` | Restart the saved file's owning resource automatically. |
 | `perfectFivem.rcon.restartDelayMs` | `300` | Debounce window before sending the restart. |
 
+Badge colors (client/server/shared) are theme colors, not settings — customize them via
+`workbench.colorCustomizations` in `settings.json`, or run **Preferences: Customize Colors**
+from the Command Palette for a live color picker:
+
+```json
+"workbench.colorCustomizations": {
+  "perfectFivem.decorations.clientColor": "#3794FF",
+  "perfectFivem.decorations.serverColor": "#E78AFF",
+  "perfectFivem.decorations.sharedColor": "#B180D7"
+}
+```
+
+The server badge defaults to pink/magenta (`#E78AFF`).
+
 ## The natives database
 
 `data/natives.json` is a normalized merge of the two official Cfx.re sources:

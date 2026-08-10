@@ -3,9 +3,9 @@ import { ContextIndex } from '../core/contextIndex';
 import { ScriptContext } from '../core/types';
 
 const BADGES: Record<ScriptContext, { badge: string; tooltip: string; color: string }> = {
-  client: { badge: 'C', tooltip: 'FiveM client script', color: 'charts.blue' },
-  server: { badge: 'S', tooltip: 'FiveM server script', color: 'charts.yellow' },
-  shared: { badge: 'SH', tooltip: 'FiveM shared script', color: 'charts.purple' },
+  client: { badge: 'C', tooltip: 'FiveM client script', color: 'perfectFivem.decorations.clientColor' },
+  server: { badge: 'S', tooltip: 'FiveM server script', color: 'perfectFivem.decorations.serverColor' },
+  shared: { badge: 'SH', tooltip: 'FiveM shared script', color: 'perfectFivem.decorations.sharedColor' },
 };
 
 /**
