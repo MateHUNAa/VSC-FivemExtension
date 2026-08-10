@@ -7,5 +7,7 @@ sample-workspace/**
 .gitignore
 .gitmodules
 tsconfig.json
+bun.lock
+package-lock.json
 **/*.map
 **/.git*

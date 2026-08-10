@@ -51,7 +51,7 @@ NativesDatabase (loads data/natives.json once) --> shared by all native-facing p
   event registrations, keyed by resource name, so `exports['other_resource']:` resolves even
   if `other_resource` was never opened in the editor.
 
-## 2. Key data structures ([src/core/types.ts](src/core/types.ts))
+## 2. Key data structures (`src/core/types.ts`)
 
 ```ts
 type ScriptContext = 'client' | 'server' | 'shared';
@@ -68,23 +68,23 @@ flattened `Map<fileFsPath, FileContextEntry>` for O(1) lookups from every consum
 
 ## 3. Implementation plan / critical pieces
 
-- [src/core/manifestParser.ts](src/core/manifestParser.ts) — comment-stripping (quote-aware,
+- `src/core/manifestParser.ts` — comment-stripping (quote-aware,
   handles `--`, `--[[ ]]`, `--[=[ ]=]`) plus a balanced-brace scanner that extracts every quoted
   string out of `key 'value'`, `key "value"` or `key { ... }` forms, regardless of newlines or
   trailing commas. Strings starting with `@` are routed to `imports` instead of file patterns.
-- [src/core/glob.ts](src/core/glob.ts) — normalizes Cfx's glob dialect (notably bare `**.lua`)
+- `src/core/glob.ts` — normalizes Cfx's glob dialect (notably bare `**.lua`)
   into a pattern VS Code's own glob engine accepts, so pattern matching reuses
   `vscode.workspace.findFiles` instead of a hand-rolled filesystem walker.
-- [src/core/contextIndex.ts](src/core/contextIndex.ts) — `rebuildResource()` re-reads one
+- `src/core/contextIndex.ts` — `rebuildResource()` re-reads one
   manifest, resolves its three pattern lists in parallel, and diffs the previous file set
   against the new one before firing `onDidChangeContext` with only the changed URIs.
-- [src/natives/nativesDatabase.ts](src/natives/nativesDatabase.ts) — converts native
+- `src/natives/nativesDatabase.ts` — converts native
   `SNAKE_CASE` names to the PascalCase Lua calling convention (`GET_ENTITY_COORDS` →
   `GetEntityCoords`) and indexes by that name.
 
 ## 4. How decorations and language features are wired together
 
-All of it is glued in [src/extension.ts](src/extension.ts)'s `activate()`:
+All of it is glued in `src/extension.ts`'s `activate()`:
 
 1. `ResourceScanner.initialScan()` finds every manifest, then `ContextIndex.initialBuild()` and
    `ExportsIndexer.initialBuild()` populate their maps (shown behind a window progress toast).
@@ -123,9 +123,9 @@ modules (`local Rpc = {}`, `function Rpc:Register(...)`) is what a full **Lua la
 is for, and reimplementing one is a different project entirely.
 
 **For real OOP/metatable completion, hover, and go-to-definition, install the actual language
-server:** [`overextended.cfxlua-vscode`](vendor/cfxlua-vscode) from the VS Code Marketplace
+server:** `overextended.cfxlua-vscode` from the VS Code Marketplace
 (search "CfxLua IntelliSense"). It declares [`sumneko.lua`](https://marketplace.visualstudio.com/items?itemName=sumneko.lua)
-(the LuaLS engine — see [vendor/lua-language-server](vendor/lua-language-server)) as an
+(the LuaLS engine — see `vendor/lua-language-server`) as an
 extension dependency, so installing it pulls in the real language server automatically and
 configures it for the Cfx Lua runtime. Install it in your normal VS Code (not inside the
 Extension Development Host) — the dev host inherits your normally-installed extensions unless
@@ -138,7 +138,7 @@ and VS Code just merges their suggestions.
 
 **Perfect FiveM also ships a small, honestly-scoped complement to this**, useful even with the
 real language server installed since it's aware of resource boundaries in a way a generic LSP
-isn't: [src/oop/tableMethodIndexer.ts](src/oop/tableMethodIndexer.ts) scans a resource's Lua
+isn't: `src/oop/tableMethodIndexer.ts` scans a resource's Lua
 files for `function Table:Method(...)` / `function Table.Method(...)` declarations (the same
 regex-over-text approach as the exports indexer) and offers completion after `Table:` / `Table.`
 anywhere else in that resource. There's no type inference — a table name match is all it takes,
@@ -150,13 +150,13 @@ Toggle with `perfectFivem.oop.enable`.
 FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc
 "out-of-band" UDP protocol: every packet is `\xFF\xFF\xFF\xFF` + a command name + a space-joined
 payload + a trailing NUL byte, with the password sent inline on every request (no separate auth
-handshake, no request/response IDs). [src/rcon/protocol.ts](src/rcon/protocol.ts) implements this
+handshake, no request/response IDs). `src/rcon/protocol.ts` implements this
 directly on top of Node's built-in `dgram` module — no third-party RCON dependency. The exact wire
-format was cross-checked against [icecon](vendor/icecon) (a known-working native FiveM RCON
+format was cross-checked against `icecon` (a known-working native FiveM RCON
 client) and its `go-q3net` dependency, and confirmed against a real running server during
 development.
 
-[src/rcon/rconManager.ts](src/rcon/rconManager.ts) resolves which resource to restart with
+`src/rcon/rconManager.ts` resolves which resource to restart with
 `ResourceScanner.getResourceForFile()` — the same manifest-driven detection used everywhere else
 in this extension — so a save always restarts the one resource that actually owns the file, even
 in a monorepo with dozens of resources. Multiple saves to the same resource within
@@ -243,7 +243,7 @@ Development Host:
 1. `npm install && npm run compile`
 2. Press `F5`. A second VS Code window ("Extension Development Host") opens with the extension
    built from this repo active.
-3. In that window, `File > Open Folder…` → [sample-workspace](sample-workspace) (bundled in this
+3. In that window, `File > Open Folder…` → `sample-workspace` (bundled in this
    repo). It contains two fake resources (`test_resource`, `test_lib`) wired to exercise every
    feature:
    - **Resource detection & decorations** — the Explorer should badge `client/main.lua` `C`,

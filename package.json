@@ -3,8 +3,12 @@
   "displayName": "Perfect FiveM",
   "description": "Resource-aware IntelliSense for FiveM: context-scoped native completion/hover, fxmanifest-driven client/server/shared detection, explorer decorations, and exports IntelliSense.",
   "version": "0.1.0",
-  "publisher": "perfect-fivem",
+  "publisher": "MateHUN",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MateHUNAa/VSC-FivemExtension.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -163,6 +167,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.4.0"
   }
 }
