@@ -11,6 +11,7 @@ import { NativesDatabase } from './natives/nativesDatabase';
 import { NativeSignatureHelpProvider } from './natives/signatureHelpProvider';
 import { RconManager } from './rcon/rconManager';
 import { Logger } from './utils/logger';
+import { normalizePathKey } from './utils/paths';
 
 const LUA_SELECTOR: vscode.DocumentSelector = { language: 'lua', scheme: 'file' };
 const DIAGNOSTIC_DEBOUNCE_MS = 300;
@@ -101,8 +102,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.workspace.onDidSaveTextDocument((document) => {
         if (document.uri.scheme !== 'file') return;
         if (!vscode.workspace.getConfiguration('perfectFivem.rcon').get<boolean>('autoRestartOnSave', true)) return;
-        if (!rconManager?.isConnected) return;
-        rconManager.restartForFile(document.uri.fsPath);
+        if (!rconManager?.isConnected) {
+          log.info(`RCON: skipped restart-on-save for '${document.uri.fsPath}' (not connected).`);
+          return;
+        }
+        if (!rconManager.restartForFile(document.uri.fsPath)) {
+          log.warn(`RCON: saved '${document.uri.fsPath}' but it isn't part of any detected resource - no restart sent.`);
+        }
       }),
     );
   }
@@ -131,9 +137,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeTextDocument((e) => scheduleDiagnostics(e.document)),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
     contextIndex.onDidChangeContext((uris) => {
-      const changed = new Set(uris.map((u) => u.toString()));
+      const changed = new Set(uris.map((u) => normalizePathKey(u.fsPath)));
       for (const doc of vscode.workspace.textDocuments) {
-        if (changed.has(doc.uri.toString())) scheduleDiagnostics(doc);
+        if (changed.has(normalizePathKey(doc.uri.fsPath))) scheduleDiagnostics(doc);
       }
     }),
   );

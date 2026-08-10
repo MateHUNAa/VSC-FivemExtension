@@ -13,7 +13,7 @@ export function isGlobPattern(pattern: string): boolean {
 /**
  * Rewrites an fxmanifest glob into a pattern VS Code's minimatch-based glob engine accepts.
  * The only real divergence is `**` not followed by `/`: Cfx treats it as "recurse then match
- * the rest here", VS Code expects an explicit `**/` segment boundary.
+ * the rest here", VS Code expects an explicit `**` + `/` segment boundary.
  */
 export function normalizeFxGlobToVscodeGlob(pattern: string): string {
   let p = pattern.replace(/\\/g, '/').trim();

@@ -21,3 +21,8 @@ end)
 
 -- Type a quote inside TriggerServerEvent( below to see event-name completion ("test:ping").
 TriggerServerEvent('test:ping')
+
+
+ExecuteCommand("testlib")
+
+

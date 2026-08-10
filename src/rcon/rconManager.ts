@@ -74,7 +74,7 @@ export class RconManager implements vscode.Disposable {
     this.log.info(`RCON: ${str}`);
     if (str.includes("Couldn't find resource")) {
       vscode.window.showErrorMessage("Perfect FiveM: server reported it couldn't find the resource.");
-    } else if (str === 'rint Invalid password') {
+    } else if (/invalid.*password/i.test(str)) {
       vscode.window.showErrorMessage('Perfect FiveM: RCON authentication failed (invalid password). Use "Perfect FiveM: RCON Forget Saved Password" and reconnect.');
     } else if (str.startsWith('error:')) {
       vscode.window.showErrorMessage(`Perfect FiveM: RCON ${str}`);
@@ -170,14 +170,26 @@ export class RconManager implements vscode.Disposable {
       resourceName,
       setTimeout(() => {
         this.restartTimers.delete(resourceName);
-        try {
-          this.client.send(`refresh; ensure ${resourceName}`);
-          this.log.info(`RCON: restarting resource '${resourceName}'.`);
-        } catch (err) {
-          this.log.error(`RCON: failed to restart '${resourceName}'`, err);
-        }
+        void this.sendRestart(resourceName);
       }, Math.max(0, delay)),
     );
+  }
+
+  private async sendRestart(resourceName: string): Promise<void> {
+    this.log.info(`RCON: sending restart for resource '${resourceName}'…`);
+    try {
+      // Waiting for a reply (instead of firing-and-forgetting) is what actually proves the
+      // command reached the server - UDP gives no other delivery guarantee. A real response is
+      // already logged/pattern-matched by handleResponse via the persistent onResponse event.
+      const response = await this.client.sendAndWait(`refresh; ensure ${resourceName}`);
+      if (response === undefined) {
+        this.log.warn(
+          `RCON: sent restart for '${resourceName}' but got no response - verify host/port/password, and that the server is actually running and reachable.`,
+        );
+      }
+    } catch (err) {
+      this.log.error(`RCON: failed to restart '${resourceName}'`, err);
+    }
   }
 
   /** Restarts the resource that owns `fsPath`, if any. Returns whether a restart was scheduled. */

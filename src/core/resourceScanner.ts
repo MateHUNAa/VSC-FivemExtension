@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Logger } from '../utils/logger';
+import { normalizePathKey } from '../utils/paths';
 import { ManifestKind, ResourceRoot } from './types';
 
 const DEBOUNCE_MS = 150;
@@ -43,7 +44,7 @@ export class ResourceScanner implements vscode.Disposable {
   }
 
   getResourceForFile(fsPath: string): ResourceRoot | undefined {
-    let dir = path.dirname(fsPath);
+    let dir = normalizePathKey(path.dirname(fsPath));
     while (true) {
       const root = this.roots.get(dir);
       if (root) return root;
@@ -64,11 +65,11 @@ export class ResourceScanner implements vscode.Disposable {
 
     const found = new Set<string>();
     for (const uri of manifests) {
-      found.add(path.dirname(uri.fsPath));
+      found.add(normalizePathKey(path.dirname(uri.fsPath)));
       this.registerRoot(uri, 'fxmanifest', /*silent*/ true);
     }
     for (const uri of legacy) {
-      const folder = path.dirname(uri.fsPath);
+      const folder = normalizePathKey(path.dirname(uri.fsPath));
       if (!found.has(folder)) {
         found.add(folder);
         this.registerRoot(uri, 'legacy', /*silent*/ true);
@@ -87,22 +88,24 @@ export class ResourceScanner implements vscode.Disposable {
 
   private registerRoot(manifestUri: vscode.Uri, kind: ManifestKind, silent = false): ResourceRoot {
     const folderUri = vscode.Uri.file(path.dirname(manifestUri.fsPath));
-    const alreadyExisted = this.roots.has(folderUri.fsPath);
+    const key = normalizePathKey(folderUri.fsPath);
+    const alreadyExisted = this.roots.has(key);
     const root: ResourceRoot = {
       uri: folderUri,
       name: path.basename(folderUri.fsPath),
       manifestUri,
       manifestKind: kind,
     };
-    this.roots.set(folderUri.fsPath, root);
+    this.roots.set(key, root);
     if (!silent && !alreadyExisted) this._onDidAddResource.fire(root);
     return root;
   }
 
   private unregisterRoot(folderFsPath: string): void {
-    const root = this.roots.get(folderFsPath);
+    const key = normalizePathKey(folderFsPath);
+    const root = this.roots.get(key);
     if (!root) return;
-    this.roots.delete(folderFsPath);
+    this.roots.delete(key);
     this._onDidRemoveResource.fire(root);
   }
 
@@ -113,7 +116,7 @@ export class ResourceScanner implements vscode.Disposable {
       this._onDidChangeManifest.fire(root);
     });
     manifestWatcher.onDidChange((uri) => {
-      const root = this.roots.get(path.dirname(uri.fsPath));
+      const root = this.roots.get(normalizePathKey(path.dirname(uri.fsPath)));
       if (root) this._onDidChangeManifest.fire(root);
     });
     manifestWatcher.onDidDelete((uri) => {
@@ -123,17 +126,17 @@ export class ResourceScanner implements vscode.Disposable {
 
     const legacyWatcher = vscode.workspace.createFileSystemWatcher('**/__resource.lua');
     legacyWatcher.onDidCreate((uri) => {
-      const folder = path.dirname(uri.fsPath);
+      const folder = normalizePathKey(path.dirname(uri.fsPath));
       if (this.roots.has(folder)) return; // fxmanifest.lua already covers this folder
       const root = this.registerRoot(uri, 'legacy');
       this._onDidChangeManifest.fire(root);
     });
     legacyWatcher.onDidChange((uri) => {
-      const root = this.roots.get(path.dirname(uri.fsPath));
+      const root = this.roots.get(normalizePathKey(path.dirname(uri.fsPath)));
       if (root && root.manifestKind === 'legacy') this._onDidChangeManifest.fire(root);
     });
     legacyWatcher.onDidDelete((uri) => {
-      const folder = path.dirname(uri.fsPath);
+      const folder = normalizePathKey(path.dirname(uri.fsPath));
       const root = this.roots.get(folder);
       if (root && root.manifestKind === 'legacy') this.unregisterRoot(folder);
     });

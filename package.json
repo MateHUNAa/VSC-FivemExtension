@@ -148,9 +148,6 @@
     "watch": "tsc -watch -p ./",
     "update-natives": "node ./scripts/update-natives.js"
   },
-  "dependencies": {
-    "rcon": "^1.1.0"
-  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",

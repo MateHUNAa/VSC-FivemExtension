@@ -23,8 +23,7 @@ exports/event IntelliSense across resources in the workspace.
   called from a client script).
 - **RCON restart-on-save** — connect to your FiveM server's RCON and every file save
   automatically runs `refresh; ensure <resource>` for the *exact* resource that owns the saved
-  file (ports and improves on [vendor/fivem-devbridge](vendor/fivem-devbridge)'s approach — see
-  below).
+  file, using a native implementation of FiveM's RCON wire protocol (see below).
 
 ## 1. High-level architecture
 
@@ -113,24 +112,36 @@ All of it is glued in [src/extension.ts](src/extension.ts)'s `activate()`:
 
 ## RCON restart-on-save
 
-[vendor/fivem-devbridge](vendor/fivem-devbridge) connects to the server's RCON (via the `rcon`
-npm package in UDP mode, matching FiveM's RCON dialect — `{ tcp: false, challenge: false }`) and
-on every save sends `refresh; ensure <resource>`, but it has to guess which resource that is: either
-every top-level workspace folder, or one folder you set manually via a command. `src/rcon/` ports
-the same RCON mechanics but resolves the resource with `ResourceScanner.getResourceForFile()` —
-the same manifest-driven detection used everywhere else in this extension — so a save always
-restarts the one resource that actually owns the file, even in a monorepo with dozens of
-resources. Multiple saves to the same resource within `restartDelayMs` are coalesced into a
-single restart.
+FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc
+"out-of-band" UDP protocol: every packet is `\xFF\xFF\xFF\xFF` + a command name + a space-joined
+payload + a trailing NUL byte, with the password sent inline on every request (no separate auth
+handshake, no request/response IDs). [src/rcon/protocol.ts](src/rcon/protocol.ts) implements this
+directly on top of Node's built-in `dgram` module — no third-party RCON dependency. The exact wire
+format was cross-checked against [icecon](vendor/icecon) (a known-working native FiveM RCON
+client) and its `go-q3net` dependency, and confirmed against a real running server during
+development.
 
-Other differences from the vendor extension: the RCON password is stored in
-`vscode.SecretStorage` (OS keychain-backed) instead of plain `workspaceState`, and the status
-bar item uses a built-in codicon instead of a bundled icon font.
+[src/rcon/rconManager.ts](src/rcon/rconManager.ts) resolves which resource to restart with
+`ResourceScanner.getResourceForFile()` — the same manifest-driven detection used everywhere else
+in this extension — so a save always restarts the one resource that actually owns the file, even
+in a monorepo with dozens of resources. Multiple saves to the same resource within
+`restartDelayMs` are coalesced into a single restart, and every restart *waits* for the server's
+response (or logs a clear "no response" warning if none arrives within the timeout) instead of
+firing and forgetting — UDP gives no other delivery guarantee, so this is what actually surfaces
+a wrong password, wrong port, or unreachable server instead of failing silently.
+
+The RCON password is stored in `vscode.SecretStorage` (OS keychain-backed), never in settings or
+workspace state.
 
 Commands: `perfectFivem.rcon.connect` (uses configured host/port, prompts for password once and
 remembers it), `perfectFivem.rcon.connectCustom` (prompts for host:port + password), `.disconnect`,
 `.toggleConnection` (bound to the status bar item), `.restartCurrentResource` (manual trigger for
 the active file's resource), `.forgetPassword`.
+
+Note that `connect()` itself is optimistic — UDP has no handshake to wait on, so the status bar
+turning "Connected" only means the local socket opened, not that the password was verified. The
+first actual restart is what proves the round trip works; check the "Perfect FiveM" Output
+channel after saving a file if you're unsure.
 
 ## Configuration
 

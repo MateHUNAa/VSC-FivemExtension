@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Logger } from '../utils/logger';
+import { normalizePathKey } from '../utils/paths';
 import { normalizeFxGlobToVscodeGlob } from './glob';
 import { parseManifest } from './manifestParser';
 import { ResourceScanner } from './resourceScanner';
@@ -44,7 +45,7 @@ export class ContextIndex implements vscode.Disposable {
   }
 
   getFileContext(uri: vscode.Uri): FileContextEntry | undefined {
-    return this.fileIndex.get(uri.fsPath);
+    return this.fileIndex.get(normalizePathKey(uri.fsPath));
   }
 
   getResourceByName(name: string): ResourceRoot | undefined {
@@ -52,7 +53,7 @@ export class ContextIndex implements vscode.Disposable {
   }
 
   getManifest(root: ResourceRoot): ParsedManifest | undefined {
-    return this.resourceStates.get(root.uri.fsPath)?.manifest;
+    return this.resourceStates.get(normalizePathKey(root.uri.fsPath))?.manifest;
   }
 
   get allResources(): ResourceRoot[] {
@@ -93,7 +94,8 @@ export class ContextIndex implements vscode.Disposable {
       fileContexts.set(f, fileContexts.has(f) ? mergeContext(fileContexts.get(f)!, 'server') : 'server');
     }
 
-    const previous = this.resourceStates.get(root.uri.fsPath);
+    const resourceKey = normalizePathKey(root.uri.fsPath);
+    const previous = this.resourceStates.get(resourceKey);
     const changedFsPaths = new Set<string>();
 
     if (previous) {
@@ -107,21 +109,22 @@ export class ContextIndex implements vscode.Disposable {
       changedFsPaths.add(fsPath);
     }
 
-    this.resourceStates.set(root.uri.fsPath, { root, manifest, fileContexts });
+    this.resourceStates.set(resourceKey, { root, manifest, fileContexts });
     this.resourceByName.set(root.name.toLowerCase(), root);
 
     this._onDidChangeContext.fire([...changedFsPaths].map((p) => vscode.Uri.file(p)));
   }
 
   private removeResource(root: ResourceRoot): void {
-    const state = this.resourceStates.get(root.uri.fsPath);
+    const resourceKey = normalizePathKey(root.uri.fsPath);
+    const state = this.resourceStates.get(resourceKey);
     if (!state) return;
     const changed: vscode.Uri[] = [];
     for (const fsPath of state.fileContexts.keys()) {
       this.fileIndex.delete(fsPath);
       changed.push(vscode.Uri.file(fsPath));
     }
-    this.resourceStates.delete(root.uri.fsPath);
+    this.resourceStates.delete(resourceKey);
     this.resourceByName.delete(root.name.toLowerCase());
     this._onDidChangeContext.fire(changed);
   }
@@ -133,7 +136,7 @@ export class ContextIndex implements vscode.Disposable {
       try {
         const relative = new vscode.RelativePattern(root.uri, vscodeGlob);
         const files = await vscode.workspace.findFiles(relative);
-        for (const f of files) results.add(f.fsPath);
+        for (const f of files) results.add(normalizePathKey(f.fsPath));
       } catch (err) {
         this.log.warn(`Failed to resolve pattern '${pattern}' in '${root.name}': ${String(err)}`);
       }

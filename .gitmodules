@@ -4,6 +4,6 @@
 [submodule "vendor/cfxlua-vscode"]
 	path = vendor/cfxlua-vscode
 	url = https://github.com/overextended/cfxlua-vscode.git
-[submodule "vendor/fivem-devbridge"]
-	path = vendor/fivem-devbridge
-	url = https://github.com/ZerXGIT/fivem-devbridge.git
+[submodule "vendor/icecon"]
+	path = vendor/icecon
+	url = https://github.com/icedream/icecon.git
