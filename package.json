@@ -1,0 +1,159 @@
+{
+  "name": "perfect-fivem",
+  "displayName": "Perfect FiveM",
+  "description": "Resource-aware IntelliSense for FiveM: context-scoped native completion/hover, fxmanifest-driven client/server/shared detection, explorer decorations, and exports IntelliSense.",
+  "version": "0.1.0",
+  "publisher": "perfect-fivem",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "fivem",
+    "cfx",
+    "lua",
+    "natives",
+    "ox_lib",
+    "fxmanifest"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/fxmanifest.lua",
+    "workspaceContains:**/__resource.lua",
+    "onLanguage:lua"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Perfect FiveM",
+      "properties": {
+        "perfectFivem.resourceDetection.excludeGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/vendor/**"
+          ],
+          "description": "Glob patterns excluded when scanning the workspace for fxmanifest.lua / __resource.lua resource roots."
+        },
+        "perfectFivem.decorations.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show client/server/shared badges on Lua files in the Explorer, based on the pre-computed fxmanifest context index."
+        },
+        "perfectFivem.natives.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable context-aware completion, hover and signature help for FiveM natives."
+        },
+        "perfectFivem.natives.databasePath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a custom normalized natives.json to use instead of the bundled database. Leave empty to use the bundled database (see 'Perfect FiveM: Refresh Natives Database' to update it)."
+        },
+        "perfectFivem.natives.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a native is used in a script context (client/server) it is not available in."
+        },
+        "perfectFivem.natives.deprecatedOverrides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Lua native names (e.g. 'SetPedAmmo') to flag as deprecated in diagnostics, in addition to the built-in list."
+        },
+        "perfectFivem.imports.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable IntelliSense for exports('name', ...) / exports.name = ... consumed via exports['resource']:method() or exports.resource:method(), and for @resource/path imports declared in fxmanifest script arrays."
+        },
+        "perfectFivem.rcon.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the RCON status bar item, connect/disconnect commands, and restart-on-save."
+        },
+        "perfectFivem.rcon.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "FiveM server RCON host."
+        },
+        "perfectFivem.rcon.port": {
+          "type": "number",
+          "default": 30120,
+          "description": "FiveM server RCON port."
+        },
+        "perfectFivem.rcon.autoRestartOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "When connected via RCON, automatically run 'refresh; ensure <resource>' for the resource that owns the file you just saved."
+        },
+        "perfectFivem.rcon.restartDelayMs": {
+          "type": "number",
+          "default": 300,
+          "description": "Debounce delay (ms) before an auto-restart is sent, so saving several files in the same resource in quick succession only triggers one restart."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "perfectFivem.rescanWorkspace",
+        "title": "Perfect FiveM: Rescan Workspace"
+      },
+      {
+        "command": "perfectFivem.refreshNativesDatabase",
+        "title": "Perfect FiveM: Refresh Natives Database"
+      },
+      {
+        "command": "perfectFivem.showResourceInfo",
+        "title": "Perfect FiveM: Show Resource Info for Current File"
+      },
+      {
+        "command": "perfectFivem.rcon.connect",
+        "title": "Perfect FiveM: RCON Connect"
+      },
+      {
+        "command": "perfectFivem.rcon.connectCustom",
+        "title": "Perfect FiveM: RCON Connect (Custom Host/Port)"
+      },
+      {
+        "command": "perfectFivem.rcon.disconnect",
+        "title": "Perfect FiveM: RCON Disconnect"
+      },
+      {
+        "command": "perfectFivem.rcon.toggleConnection",
+        "title": "Perfect FiveM: RCON Toggle Connection"
+      },
+      {
+        "command": "perfectFivem.rcon.restartCurrentResource",
+        "title": "Perfect FiveM: RCON Restart Current Resource"
+      },
+      {
+        "command": "perfectFivem.rcon.forgetPassword",
+        "title": "Perfect FiveM: RCON Forget Saved Password"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "update-natives": "node ./scripts/update-natives.js"
+  },
+  "dependencies": {
+    "rcon": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

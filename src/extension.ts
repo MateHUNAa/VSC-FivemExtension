@@ -1,0 +1,205 @@
+import * as vscode from 'vscode';
+import { ContextIndex } from './core/contextIndex';
+import { ResourceScanner } from './core/resourceScanner';
+import { ContextFileDecorationProvider } from './decorations/fileDecorationProvider';
+import { ExportsIndexer } from './imports/exportsIndexer';
+import { ExportsCompletionProvider, EventNameCompletionProvider } from './imports/importCompletionProvider';
+import { NativeCompletionProvider } from './natives/completionProvider';
+import { NativeContextDiagnostics } from './natives/diagnostics';
+import { NativeHoverProvider } from './natives/hoverProvider';
+import { NativesDatabase } from './natives/nativesDatabase';
+import { NativeSignatureHelpProvider } from './natives/signatureHelpProvider';
+import { RconManager } from './rcon/rconManager';
+import { Logger } from './utils/logger';
+
+const LUA_SELECTOR: vscode.DocumentSelector = { language: 'lua', scheme: 'file' };
+const DIAGNOSTIC_DEBOUNCE_MS = 300;
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const log = new Logger();
+  context.subscriptions.push(log);
+
+  const scanner = new ResourceScanner(log);
+  const contextIndex = new ContextIndex(scanner, log);
+  const exportsIndex = new ExportsIndexer(scanner, log);
+  const nativesDb = new NativesDatabase(context.extensionUri, log);
+  context.subscriptions.push(scanner, contextIndex, exportsIndex, nativesDb);
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: 'Perfect FiveM: scanning workspace…' },
+    async () => {
+      await scanner.initialScan();
+      await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild(), nativesDb.ensureLoaded()]);
+    },
+  );
+  log.info(`Ready: ${scanner.resources.length} resource(s), ${nativesDb.size} natives indexed.`);
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+      await scanner.initialScan();
+      await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild()]);
+    }),
+  );
+
+  const config = vscode.workspace.getConfiguration('perfectFivem');
+
+  // --- Explorer decorations -------------------------------------------------
+  if (config.get<boolean>('decorations.enable', true)) {
+    const decorationProvider = new ContextFileDecorationProvider(contextIndex);
+    context.subscriptions.push(decorationProvider, vscode.window.registerFileDecorationProvider(decorationProvider));
+  }
+
+  // --- Native IntelliSense ---------------------------------------------------
+  if (config.get<boolean>('natives.enable', true)) {
+    const completionProvider = new NativeCompletionProvider(nativesDb, contextIndex);
+    const hoverProvider = new NativeHoverProvider(nativesDb);
+    const signatureHelpProvider = new NativeSignatureHelpProvider(nativesDb);
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, completionProvider),
+      vscode.languages.registerHoverProvider(LUA_SELECTOR, hoverProvider),
+      vscode.languages.registerSignatureHelpProvider(LUA_SELECTOR, signatureHelpProvider, '(', ','),
+    );
+  }
+
+  // --- Imports / exports IntelliSense -----------------------------------------
+  if (config.get<boolean>('imports.enable', true)) {
+    const exportsCompletionProvider = new ExportsCompletionProvider(exportsIndex);
+    const eventCompletionProvider = new EventNameCompletionProvider(exportsIndex);
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, exportsCompletionProvider, '.', ':'),
+      vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, eventCompletionProvider, "'", '"'),
+    );
+  }
+
+  // --- RCON: restart the owning resource on save --------------------------------
+  let rconManager: RconManager | undefined;
+  if (config.get<boolean>('rcon.enable', true)) {
+    rconManager = new RconManager(context.secrets, scanner, log);
+    context.subscriptions.push(rconManager);
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('perfectFivem.rcon.connect', () => rconManager?.connect()),
+      vscode.commands.registerCommand('perfectFivem.rcon.connectCustom', () => rconManager?.connectCustom()),
+      vscode.commands.registerCommand('perfectFivem.rcon.disconnect', () => rconManager?.disconnect()),
+      vscode.commands.registerCommand('perfectFivem.rcon.toggleConnection', () => rconManager?.toggleConnection()),
+      vscode.commands.registerCommand('perfectFivem.rcon.forgetPassword', () => rconManager?.forgetPassword()),
+      vscode.commands.registerCommand('perfectFivem.rcon.restartCurrentResource', () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showInformationMessage('Perfect FiveM: no active editor.');
+          return;
+        }
+        if (!rconManager?.isConnected) {
+          vscode.window.showWarningMessage('Perfect FiveM: not connected to RCON.');
+          return;
+        }
+        if (!rconManager.restartForFile(editor.document.uri.fsPath)) {
+          vscode.window.showWarningMessage('Perfect FiveM: this file is not part of any detected resource.');
+        }
+      }),
+
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        if (document.uri.scheme !== 'file') return;
+        if (!vscode.workspace.getConfiguration('perfectFivem.rcon').get<boolean>('autoRestartOnSave', true)) return;
+        if (!rconManager?.isConnected) return;
+        rconManager.restartForFile(document.uri.fsPath);
+      }),
+    );
+  }
+
+  // --- Diagnostics -------------------------------------------------------------
+  const diagnostics = new NativeContextDiagnostics(nativesDb, contextIndex);
+  context.subscriptions.push(diagnostics);
+
+  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const scheduleDiagnostics = (document: vscode.TextDocument) => {
+    if (document.languageId !== 'lua') return;
+    const key = document.uri.toString();
+    const existing = debounceTimers.get(key);
+    if (existing) clearTimeout(existing);
+    debounceTimers.set(
+      key,
+      setTimeout(() => {
+        debounceTimers.delete(key);
+        diagnostics.refresh(document);
+      }, DIAGNOSTIC_DEBOUNCE_MS),
+    );
+  };
+
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(scheduleDiagnostics),
+    vscode.workspace.onDidChangeTextDocument((e) => scheduleDiagnostics(e.document)),
+    vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
+    contextIndex.onDidChangeContext((uris) => {
+      const changed = new Set(uris.map((u) => u.toString()));
+      for (const doc of vscode.workspace.textDocuments) {
+        if (changed.has(doc.uri.toString())) scheduleDiagnostics(doc);
+      }
+    }),
+  );
+  for (const doc of vscode.workspace.textDocuments) scheduleDiagnostics(doc);
+
+  // --- Commands ------------------------------------------------------------------
+  context.subscriptions.push(
+    vscode.commands.registerCommand('perfectFivem.rescanWorkspace', async () => {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Perfect FiveM: rescanning workspace…' },
+        async () => {
+          await scanner.initialScan();
+          await Promise.all([contextIndex.initialBuild(), exportsIndex.initialBuild()]);
+        },
+      );
+      vscode.window.showInformationMessage(`Perfect FiveM: found ${scanner.resources.length} resource(s).`);
+    }),
+
+    vscode.commands.registerCommand('perfectFivem.refreshNativesDatabase', async () => {
+      await nativesDb.reload();
+      vscode.window.showInformationMessage(
+        nativesDb.isLoaded
+          ? `Perfect FiveM: reloaded ${nativesDb.size} natives.`
+          : 'Perfect FiveM: failed to reload natives database, see the "Perfect FiveM" output channel.',
+      );
+    }),
+
+    vscode.commands.registerCommand('perfectFivem.showResourceInfo', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showInformationMessage('Perfect FiveM: no active editor.');
+        return;
+      }
+      const entry = contextIndex.getFileContext(editor.document.uri);
+      if (!entry) {
+        vscode.window.showInformationMessage('Perfect FiveM: this file is not part of any detected resource.');
+        return;
+      }
+      const manifest = contextIndex.getManifest(entry.resource);
+      const importLines = (manifest?.imports ?? []).map((i) => `  @${i.resourceName}/${i.path} (${i.declaredIn})`);
+      const lines = [
+        `Resource: ${entry.resource.name}`,
+        `Context: ${entry.context}`,
+        `Manifest: ${vscode.workspace.asRelativePath(entry.resource.manifestUri)} (${entry.resource.manifestKind})`,
+        ...(importLines.length ? ['Declared imports:', ...importLines] : []),
+      ];
+      vscode.window.showInformationMessage(lines.join('\n'));
+      log.info(lines.join(' | '));
+    }),
+  );
+
+  // Feature toggles are read once at activation; prompt for a reload if they change.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      const toggles = ['decorations.enable', 'natives.enable', 'imports.enable', 'rcon.enable'];
+      if (toggles.some((t) => e.affectsConfiguration(`perfectFivem.${t}`))) {
+        vscode.window
+          .showInformationMessage('Perfect FiveM: reload the window for this setting to take effect.', 'Reload Window')
+          .then((choice) => {
+            if (choice === 'Reload Window') void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          });
+      }
+    }),
+  );
+}
+
+export function deactivate(): void {
+  // All disposables are owned by context.subscriptions; nothing else to clean up.
+}

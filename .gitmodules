@@ -1,0 +1,9 @@
+[submodule "vendor/lua-language-server"]
+	path = vendor/lua-language-server
+	url = https://github.com/LuaLS/lua-language-server.git
+[submodule "vendor/cfxlua-vscode"]
+	path = vendor/cfxlua-vscode
+	url = https://github.com/overextended/cfxlua-vscode.git
+[submodule "vendor/fivem-devbridge"]
+	path = vendor/fivem-devbridge
+	url = https://github.com/ZerXGIT/fivem-devbridge.git
