@@ -187,3 +187,35 @@ npm run compile   # or `npm run watch`
 
 Press `F5` (or run the "Run Perfect FiveM Extension" launch config) to open an Extension
 Development Host with the extension loaded.
+
+## Testing
+
+There's no automated test suite yet (see below) — testing today is manual, via the Extension
+Development Host:
+
+1. `npm install && npm run compile`
+2. Press `F5`. A second VS Code window ("Extension Development Host") opens with the extension
+   built from this repo active.
+3. In that window, `File > Open Folder…` → [sample-workspace](sample-workspace) (bundled in this
+   repo). It contains two fake resources (`test_resource`, `test_lib`) wired to exercise every
+   feature:
+   - **Resource detection & decorations** — the Explorer should badge `client/main.lua` `C`,
+     `server/main.lua` `S`, `shared/config.lua` and `test_lib/init.lua` `SH`.
+   - **Native completion/hover** — open `client/main.lua`, place the cursor after a partial
+     native name (e.g. retype `GetEntityCoords`) to see completion; hover any native for docs.
+   - **Wrong-side diagnostics** — both `client/main.lua` (`DropPlayer`, server-only) and
+     `server/main.lua` (`DrawRect`, client-only) contain an intentional misuse; both should show
+     a warning squiggle.
+   - **Exports IntelliSense** — in `client/main.lua`, retype `exports['test_lib']:` to see `add`
+     and `multiply` completions sourced from `test_lib/init.lua`.
+   - **Event completion** — retype the string argument in `TriggerServerEvent('test:ping')` to
+     see event-name completion.
+   - **`Perfect FiveM: Show Resource Info for Current File`** (Command Palette) — sanity-checks
+     context/manifest/import detection for whichever file is active.
+   - **RCON** — needs a real FiveM server (see the "RCON restart-on-save" section above); point
+     `perfectFivem.rcon.host`/`port` at it, run `Perfect FiveM: RCON Connect`, then edit+save any
+     file in `test_resource` and confirm the server console shows it being refreshed/ensured.
+4. Check the "Perfect FiveM" Output channel (`View > Output`) for scan/load logs and warnings.
+
+Adding real automated tests (`@vscode/test-electron` + a runner) is a reasonable next step but
+isn't set up yet.

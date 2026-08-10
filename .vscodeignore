@@ -3,6 +3,7 @@
 src/**
 scripts/**
 vendor/**
+sample-workspace/**
 .gitignore
 .gitmodules
 tsconfig.json
