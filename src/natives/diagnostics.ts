@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ContextIndex } from '../core/contextIndex';
 import { ScriptContext } from '../core/types';
 import { isAllowedInContext, NativesDatabase } from './nativesDatabase';
+import { isMemberAccess } from '../utils/text';
 
 // A small built-in starting point; extend via perfectFivem.natives.deprecatedOverrides.
 const BUILTIN_DEPRECATED = new Set<string>(['SetPedAmmo', 'GetPedAmmoInClip', 'GetPlayerInvincible']);
@@ -67,6 +68,7 @@ export class NativeContextDiagnostics implements vscode.Disposable {
     CALL_RE.lastIndex = 0;
     while ((match = CALL_RE.exec(text))) {
       const name = match[1];
+      if (isMemberAccess(text, match.index)) continue;
       const startPos = document.positionAt(match.index);
       const endPos = document.positionAt(match.index + name.length);
       const range = new vscode.Range(startPos, endPos);

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { NativesDatabase } from './nativesDatabase';
+import { isMemberAccess } from '../utils/text';
 
 /** Walks backward from the cursor to find the enclosing `Name(...)` call and active parameter index. */
 function findEnclosingCall(textBeforeCursor: string): { name: string; activeParam: number } | undefined {
@@ -13,7 +14,9 @@ function findEnclosingCall(textBeforeCursor: string): { name: string; activePara
       if (depth === 0) {
         const before = textBeforeCursor.slice(0, i);
         const m = /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(before);
-        return m ? { name: m[1], activeParam: commaCount } : undefined;
+        if (!m) return undefined;
+        if (isMemberAccess(before, m.index)) return undefined;
+        return { name: m[1], activeParam: commaCount };
       }
       depth--;
     } else if (c === ',' && depth === 0) {

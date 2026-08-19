@@ -17,3 +17,13 @@ export function offsetToPosition(text: string, offset: number): vscode.Position 
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/** Whether the identifier starting at `nameStart` in `text` is accessed off a table
+ * (`Table.Name` / `Table:Name`) rather than called as a bare global. FiveM natives are only ever
+ * invoked as bare globals, so callers use this to avoid mistaking a same-named table method
+ * (e.g. `AdminFunction.GetPlayerGroup(...)`) for the native of the same name. */
+export function isMemberAccess(text: string, nameStart: number): boolean {
+  let i = nameStart - 1;
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  return i >= 0 && (text[i] === '.' || text[i] === ':');
+}

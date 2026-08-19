@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ContextIndex } from '../core/contextIndex';
 import { ScriptContext } from '../core/types';
 import { buildNativeMarkdown, isAllowedInContext, NativeEntry, NativesDatabase } from './nativesDatabase';
+import { isMemberAccess } from '../utils/text';
 
 /**
  * Context-scoped completion for FiveM natives. The active file's script context (client /
@@ -24,6 +25,7 @@ export class NativeCompletionProvider implements vscode.CompletionItemProvider {
     const range = document.getWordRangeAtPosition(position, /[A-Za-z_][A-Za-z0-9_]*/);
     const prefix = range ? document.getText(new vscode.Range(range.start, position)) : '';
     if (prefix.length < 2) return undefined;
+    if (range && isMemberAccess(document.lineAt(range.start.line).text, range.start.character)) return undefined;
 
     const fileContext = this.index.getFileContext(document.uri)?.context ?? 'shared';
     const candidates = this.db.queryByPrefix(prefix).filter((n) => isAllowedInContext(n.apiset, fileContext));
