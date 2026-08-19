@@ -2,7 +2,7 @@
   "name": "perfect-fivem",
   "displayName": "Perfect FiveM",
   "description": "Resource-aware IntelliSense for FiveM: context-scoped native completion/hover, fxmanifest-driven client/server/shared detection, explorer decorations, and exports IntelliSense.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "MateHUN",
   "license": "MIT",
   "repository": {
