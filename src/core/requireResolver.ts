@@ -65,12 +65,21 @@ async function extractRequireTargets(root: ResourceRoot, fsPath: string): Promis
  * passes: first discovers the require graph (context-independent), then propagates script
  * context outward from the entry points as a monotonic worklist (a file reachable from both
  * client and server converges to `shared`, same as direct manifest patterns).
+ *
+ * `requiresOf` is a persistent per-resource cache (fsPath -> its resolved require targets),
+ * mutated in place and reused across calls: a file already in the cache is only re-scanned (its
+ * targets re-extracted) if it's listed in `staleFiles`. This lets a single-file save (the common
+ * case) skip re-reading every other file in the resource's require graph - only the saved file's
+ * own targets can have changed. Pass a fresh empty map and leave `staleFiles` undefined for a
+ * full rebuild (e.g. after a file add/delete or manifest change, when set membership itself may
+ * have changed).
  */
 export async function resolveRequiredFiles(
   root: ResourceRoot,
   directFiles: Map<string, ScriptContext>, // key: normalized fsPath, from manifest script patterns
+  requiresOf: Map<string, string[]>, // fsPath -> resolved require target fsPaths; cache, mutated in place
+  staleFiles?: ReadonlySet<string>, // files to force-rescan even if already cached
 ): Promise<Map<string, ScriptContext>> {
-  const requiresOf = new Map<string, string[]>(); // fsPath -> resolved require target fsPaths
   const allFiles = new Set(directFiles.keys());
   const toScan = [...directFiles.keys()];
   const scanned = new Set<string>();
@@ -80,7 +89,8 @@ export async function resolveRequiredFiles(
     if (scanned.has(fsPath)) continue;
     scanned.add(fsPath);
 
-    const targets = await extractRequireTargets(root, fsPath);
+    const cached = requiresOf.get(fsPath);
+    const targets = cached && !staleFiles?.has(fsPath) ? cached : await extractRequireTargets(root, fsPath);
     requiresOf.set(fsPath, targets);
     for (const target of targets) {
       allFiles.add(target);

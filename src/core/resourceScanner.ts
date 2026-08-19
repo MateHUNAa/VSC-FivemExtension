@@ -24,6 +24,12 @@ export class ResourceScanner implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly pendingFileChange = new Map<string, ReturnType<typeof setTimeout>>();
   private watchersInitialized = false;
+  /** Every *.lua file in the workspace (fsPath, normalized), kept up to date by the file watcher
+   * below. Populated by a single `findFiles` scan instead of one-per-resource so consumers
+   * (ContextIndex, TableMethodIndexer, ExportsIndexer) never need to search the filesystem
+   * themselves - each `findFiles` call spawns its own ripgrep process, and with many resources
+   * building in parallel that turned into dozens of concurrent rg processes. */
+  private readonly allLuaFiles = new Set<string>(); // key: normalized fsPath
 
   private readonly _onDidAddResource = new vscode.EventEmitter<ResourceRoot>();
   private readonly _onDidRemoveResource = new vscode.EventEmitter<ResourceRoot>();
@@ -54,14 +60,28 @@ export class ResourceScanner implements vscode.Disposable {
     }
   }
 
+  /** Every known *.lua file inside `root`, from the shared in-memory list (no filesystem search). */
+  getLuaFilesForResource(root: ResourceRoot): vscode.Uri[] {
+    const prefix = normalizePathKey(root.uri.fsPath) + path.sep;
+    const result: vscode.Uri[] = [];
+    for (const fsPath of this.allLuaFiles) {
+      if (fsPath.startsWith(prefix)) result.push(vscode.Uri.file(fsPath));
+    }
+    return result;
+  }
+
   /** Runs a full workspace scan. Safe to call repeatedly (e.g. from the "Rescan Workspace" command); watchers are only ever set up once. */
   async initialScan(): Promise<void> {
     const excludeGlob = getExcludeGlob();
     const exclude = excludeGlob || undefined;
-    const [manifests, legacy] = await Promise.all([
+    const [manifests, legacy, luaFiles] = await Promise.all([
       vscode.workspace.findFiles('**/fxmanifest.lua', exclude),
       vscode.workspace.findFiles('**/__resource.lua', exclude),
+      vscode.workspace.findFiles('**/*.lua', exclude),
     ]);
+
+    this.allLuaFiles.clear();
+    for (const uri of luaFiles) this.allLuaFiles.add(normalizePathKey(uri.fsPath));
 
     const found = new Set<string>();
     for (const uri of manifests) {
@@ -143,9 +163,14 @@ export class ResourceScanner implements vscode.Disposable {
     this.disposables.push(legacyWatcher);
 
     const luaWatcher = vscode.workspace.createFileSystemWatcher('**/*.lua');
-    const onLuaTreeChange = (uri: vscode.Uri) => this.scheduleFileChange(uri);
-    luaWatcher.onDidCreate(onLuaTreeChange);
-    luaWatcher.onDidDelete(onLuaTreeChange);
+    luaWatcher.onDidCreate((uri) => {
+      this.allLuaFiles.add(normalizePathKey(uri.fsPath));
+      this.scheduleFileChange(uri);
+    });
+    luaWatcher.onDidDelete((uri) => {
+      this.allLuaFiles.delete(normalizePathKey(uri.fsPath));
+      this.scheduleFileChange(uri);
+    });
     this.disposables.push(luaWatcher);
   }
 

@@ -1,4 +1,6 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { compileGlob } from '../utils/miniglob';
 import { Logger } from '../utils/logger';
 import { normalizePathKey } from '../utils/paths';
 import { normalizeFxGlobToVscodeGlob } from './glob';
@@ -12,6 +14,7 @@ interface ResourceState {
   root: ResourceRoot;
   manifest: ParsedManifest;
   fileContexts: Map<string, { context: ScriptContext; via: ContextSource }>; // key: file fsPath
+  requiresOf: Map<string, string[]>; // require() graph cache, see resolveRequiredFiles
 }
 
 /**
@@ -42,10 +45,12 @@ export class ContextIndex implements vscode.Disposable {
   }
 
   /** Re-resolves the resource owning `fsPath`, if any. Needed on save (not just file
-   * add/delete) because require() resolution depends on file *content*, not just its presence. */
+   * add/delete) because require() resolution depends on file *content*, not just its presence.
+   * Only `fsPath` itself is re-read from disk for its require() list - every other file in the
+   * resource's require graph reuses its cached result (see ResourceState.requiresOf). */
   async refreshForFile(fsPath: string): Promise<void> {
     const root = this.scanner.getResourceForFile(fsPath);
-    if (root) await this.rebuildResource(root);
+    if (root) await this.rebuildResource(root, normalizePathKey(fsPath));
   }
 
   getFileContext(uri: vscode.Uri): FileContextEntry | undefined {
@@ -68,7 +73,11 @@ export class ContextIndex implements vscode.Disposable {
     return [...this.resourceStates.values()].map((s) => ({ root: s.root, manifest: s.manifest }));
   }
 
-  private async rebuildResource(root: ResourceRoot): Promise<void> {
+  /** `staleFile` (normalized fsPath), when given, is the single file known to have changed
+   * content (a save) - the require() graph cache is reused for every other file. Omit it for a
+   * full rebuild (initial build, file add/delete, manifest change), where the cache is reset
+   * since the set of files itself may have changed. */
+  private async rebuildResource(root: ResourceRoot, staleFile?: string): Promise<void> {
     let text: string;
     try {
       const bytes = await vscode.workspace.fs.readFile(root.manifestUri);
@@ -83,11 +92,9 @@ export class ContextIndex implements vscode.Disposable {
       this.log.warn(`Malformed manifest in '${root.name}': ${manifest.errors.join('; ') || 'unknown error'}`);
     }
 
-    const [clientFiles, serverFiles, sharedFiles] = await Promise.all([
-      this.resolvePatterns(root, manifest.clientPatterns),
-      this.resolvePatterns(root, manifest.serverPatterns),
-      this.resolvePatterns(root, manifest.sharedPatterns),
-    ]);
+    const clientFiles = this.resolvePatterns(root, manifest.clientPatterns);
+    const serverFiles = this.resolvePatterns(root, manifest.serverPatterns);
+    const sharedFiles = this.resolvePatterns(root, manifest.sharedPatterns);
 
     const directContexts = new Map<string, ScriptContext>();
     for (const f of sharedFiles) directContexts.set(f, 'shared');
@@ -98,9 +105,18 @@ export class ContextIndex implements vscode.Disposable {
       directContexts.set(f, directContexts.has(f) ? mergeContext(directContexts.get(f)!, 'server') : 'server');
     }
 
+    const resourceKey = normalizePathKey(root.uri.fsPath);
+    const previous = this.resourceStates.get(resourceKey);
+    const requiresOf = staleFile && previous ? previous.requiresOf : new Map<string, string[]>();
+
     let requiredContexts: Map<string, ScriptContext>;
     try {
-      requiredContexts = await resolveRequiredFiles(root, directContexts);
+      requiredContexts = await resolveRequiredFiles(
+        root,
+        directContexts,
+        requiresOf,
+        staleFile ? new Set([staleFile]) : undefined,
+      );
     } catch (err) {
       this.log.warn(`Failed to resolve require() graph for '${root.name}': ${String(err)}`);
       requiredContexts = new Map();
@@ -110,8 +126,6 @@ export class ContextIndex implements vscode.Disposable {
     for (const [fsPath, context] of directContexts) fileContexts.set(fsPath, { context, via: 'manifest' });
     for (const [fsPath, context] of requiredContexts) fileContexts.set(fsPath, { context, via: 'require' });
 
-    const resourceKey = normalizePathKey(root.uri.fsPath);
-    const previous = this.resourceStates.get(resourceKey);
     const changedFsPaths = new Set<string>();
 
     if (previous) {
@@ -125,7 +139,7 @@ export class ContextIndex implements vscode.Disposable {
       changedFsPaths.add(fsPath);
     }
 
-    this.resourceStates.set(resourceKey, { root, manifest, fileContexts });
+    this.resourceStates.set(resourceKey, { root, manifest, fileContexts, requiresOf });
     this.resourceByName.set(root.name.toLowerCase(), root);
 
     this._onDidChangeContext.fire([...changedFsPaths].map((p) => vscode.Uri.file(p)));
@@ -145,16 +159,25 @@ export class ContextIndex implements vscode.Disposable {
     this._onDidChangeContext.fire(changed);
   }
 
-  private async resolvePatterns(root: ResourceRoot, patterns: string[]): Promise<string[]> {
+  /** Matches fxmanifest script patterns against the resource's already-known Lua file list
+   * in memory, instead of issuing a `findFiles` search per pattern (each of which spawns its
+   * own ripgrep process - with many patterns across many resources building in parallel, that
+   * was launching dozens of concurrent rg processes on activation). */
+  private resolvePatterns(root: ResourceRoot, patterns: string[]): string[] {
+    const luaFiles = this.scanner.getLuaFilesForResource(root);
     const results = new Set<string>();
     for (const pattern of patterns) {
       const vscodeGlob = normalizeFxGlobToVscodeGlob(pattern);
+      let re: RegExp;
       try {
-        const relative = new vscode.RelativePattern(root.uri, vscodeGlob);
-        const files = await vscode.workspace.findFiles(relative);
-        for (const f of files) results.add(normalizePathKey(f.fsPath));
+        re = compileGlob(vscodeGlob);
       } catch (err) {
-        this.log.warn(`Failed to resolve pattern '${pattern}' in '${root.name}': ${String(err)}`);
+        this.log.warn(`Failed to compile pattern '${pattern}' in '${root.name}': ${String(err)}`);
+        continue;
+      }
+      for (const file of luaFiles) {
+        const rel = path.relative(root.uri.fsPath, file.fsPath).split(path.sep).join('/');
+        if (re.test(rel)) results.add(normalizePathKey(file.fsPath));
       }
     }
     return [...results];

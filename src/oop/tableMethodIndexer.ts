@@ -83,13 +83,7 @@ export class TableMethodIndexer implements vscode.Disposable {
   }
 
   private async indexResource(root: ResourceRoot): Promise<void> {
-    let files: vscode.Uri[];
-    try {
-      files = await vscode.workspace.findFiles(new vscode.RelativePattern(root.uri, '**/*.lua'));
-    } catch (err) {
-      this.log.warn(`Failed to enumerate Lua files for '${root.name}': ${String(err)}`);
-      return;
-    }
+    const files = this.scanner.getLuaFilesForResource(root);
 
     const entries: TableMethodEntry[] = [];
     for (const file of files) {
@@ -97,7 +91,8 @@ export class TableMethodIndexer implements vscode.Disposable {
       try {
         const bytes = await vscode.workspace.fs.readFile(file);
         text = Buffer.from(bytes).toString('utf8');
-      } catch {
+      } catch (err) {
+        this.log.warn(`Failed to read '${file.fsPath}': ${String(err)}`);
         continue;
       }
       entries.push(...extractTableMethods(text, file));
