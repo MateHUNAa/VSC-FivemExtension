@@ -6,6 +6,7 @@ vendor/**
 sample-workspace/**
 .gitignore
 .gitmodules
+.env
 tsconfig.json
 bun.lock
 package-lock.json
