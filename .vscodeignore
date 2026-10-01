@@ -12,3 +12,4 @@ bun.lock
 package-lock.json
 **/*.map
 **/.git*
+out/test/**

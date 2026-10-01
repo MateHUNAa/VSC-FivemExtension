@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ResourceScanner } from '../core/resourceScanner';
 import { EventEntry, ExportEntry, ResourceRoot } from '../core/types';
+import { docBlockAbove } from '../lsModules/luaLexer';
 import { Logger } from '../utils/logger';
 
 const EXPORT_CALL_RE = /exports\s*\(\s*['"]([^'"]+)['"]\s*,\s*function\s*\(([^)]*)\)/g;
@@ -26,27 +27,32 @@ function splitParams(raw: string): string[] {
 
 function extractExports(text: string, resourceName: string, fileUri: vscode.Uri): ExportEntry[] {
   const out: ExportEntry[] = [];
+  const lines = text.split(/\r?\n/);
   let m: RegExpExecArray | null;
 
   EXPORT_CALL_RE.lastIndex = 0;
   while ((m = EXPORT_CALL_RE.exec(text))) {
+    const line = offsetToLine(text, m.index);
     out.push({
       name: m[1],
       params: splitParams(m[2]),
       resourceName,
       fileUri,
-      line: offsetToLine(text, m.index),
+      line,
+      doc: docBlockAbove(lines, line),
     });
   }
 
   EXPORT_ASSIGN_RE.lastIndex = 0;
   while ((m = EXPORT_ASSIGN_RE.exec(text))) {
+    const line = offsetToLine(text, m.index);
     out.push({
       name: m[1],
       params: splitParams(m[2]),
       resourceName,
       fileUri,
-      line: offsetToLine(text, m.index),
+      line,
+      doc: docBlockAbove(lines, line),
     });
   }
 

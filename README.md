@@ -48,6 +48,9 @@ exports/event IntelliSense across resources in the workspace.
   even across resources). F2 on an event-name string renames that literal everywhere it's used,
   across every `RegisterNetEvent`/`AddEventHandler`/`TriggerEvent`/`TriggerServerEvent`/
   `TriggerClientEvent`/`TriggerLatent*Event` call in the workspace.
+- **LS module IntelliSense** - modules published with `LS:RegisterModule(...)` get real LuaLS
+  completion, hover, signature help and typed returns on `LS.<Name>`, generated from the
+  module's own annotations (see "LS module IntelliSense" below).
 - **Lightweight OOP completion** — `Table:Method()` / `Table.Method()` completion from
   `function Table:Method(...)` declarations elsewhere in the same resource (see below for how
   this relates to installing a real Lua language server, which is still the complete solution).
@@ -255,6 +258,44 @@ touch call sites in resources `ExportsIndexer` never associates with each other,
 Like the rest of the extension, this is regex-over-text, not a real parser — a rename can't tell a
 genuine call from a coincidentally identical string sitting in a comment or an unrelated context.
 
+## LS module IntelliSense (`LS:RegisterModule`)
+
+ls_core publishes a resource's API on the `LS` global with
+`LS:RegisterModule('Banking', cache.resource, 'modules/banking')`. At runtime `LS.Banking` is
+resolved lazily: the first access loads `modules/banking/{shared,server}.lua` from the
+registering resource and caches whatever table it returns. No `LS.Banking = ...` assignment ever
+exists in source, so LuaLS can't see the module on its own.
+
+`src/lsModules/` closes that gap by generating a LuaLS `---@meta` file:
+
+1. Every Lua file is scanned for `LS:RegisterModule(name, resource, path?)` (comments are masked
+   first). `cache.resource` / `GetCurrentResourceName()` mean the calling resource. The calling
+   file's script context decides which side(s) the module exists on.
+2. Per side, the module file is resolved with the same candidate list as ls_core's `loadModule`
+   (`<path>/<side>.lua`, `<path>/<side>/init.lua`, ..., plus the `shared` variants).
+3. The table named by the file's top-level `return X` is collected: `function X:M()`,
+   `function X.M()`, `X.M = function()`, other `X.F = ...` fields, export-forwarding loops
+   (`for _, n in ipairs(list) do X[n] = function(_, ...) return exports.res[n](nil, ...) end end`,
+   resolved through the exports index, including the `---` docs above each `exports(...)`), and
+   alias loops (`for a, n in pairs(aliases) do X[a] = X[n] end`).
+4. `.vscode/perfect-fivem/ls-modules.lua` is written with one `---@class LSModule.<Name>` per
+   module. Each stub keeps the original `---@param`/`---@return` lines and adds its side
+   (`client` / `server`) and a clickable link to the real definition. Members that differ
+   between client and server are emitted twice, so LuaLS shows both signatures.
+5. `.vscode/perfect-fivem` is added to the workspace `Lua.workspace.library` (a relative path,
+   so it works on every machine). VS Code replaces array settings across scopes, it doesn't
+   merge them, so the first write copies your user-level entries (e.g. cfxlua runtime/natives)
+   into the workspace value. Otherwise they would be dropped. The folder carries its own
+   `.gitignore`, so the generated file is never committed.
+
+The file is regenerated (debounced) on save of any Lua file and whenever resources change. It is
+only rewritten when its content changes. You can force a rebuild with
+**Perfect FiveM: Regenerate LS Module Types**. A module whose file has no top-level `return <table>`
+still gets an (empty) class with a note, so `LS.<Name>` resolves but has no members.
+
+Type quality follows the source: annotate a module method (or the `exports(...)` it forwards
+to) with `---@param`/`---@return` and the consumer side picks it up on the next save.
+
 ## RCON restart-on-save
 
 FiveM's RCON is *not* the Valve/Source-engine TCP RCON protocol — it's the older Quake3/GoldSrc
@@ -301,6 +342,7 @@ channel after saving a file if you're unsure.
 | `perfectFivem.imports.enable` | `true` | Exports/event IntelliSense, go-to-definition/hover, workspace symbols, rename. |
 | `perfectFivem.imports.enableEventCodeLens` | `true` | "N triggers"/"N handlers" CodeLens above event calls. |
 | `perfectFivem.oop.enable` | `true` | Lightweight `Table:Method()` / `Table.Method()` completion from same-resource declarations. |
+| `perfectFivem.lsModules.enable` | `true` | Generate LuaLS types for `LS:RegisterModule` modules (see "LS module IntelliSense"). |
 | `perfectFivem.rcon.enable` | `true` | RCON status bar item, commands, and restart-on-save. |
 | `perfectFivem.rcon.host` | `"127.0.0.1"` | FiveM server RCON host. |
 | `perfectFivem.rcon.port` | `30120` | FiveM server RCON port. |
@@ -374,8 +416,9 @@ Development Host with the extension loaded.
 
 ## Testing
 
-There's no automated test suite yet (see below) — testing today is manual, via the Extension
-Development Host:
+`npm test` compiles and runs the unit tests under `src/test/` with Node's built-in test runner.
+They cover the pure LS module parser/emitter (`src/lsModules/`). Everything that touches the
+VS Code API is still tested manually, via the Extension Development Host:
 
 1. `npm install && npm run compile`
 2. Press `F5`. A second VS Code window ("Extension Development Host") opens with the extension
