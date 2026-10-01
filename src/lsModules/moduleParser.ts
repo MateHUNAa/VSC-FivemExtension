@@ -169,6 +169,23 @@ export function parseModuleFile(text: string, tableName: string): ModuleFileSurf
   return { members: [...members.values()], forwards, aliases };
 }
 
+export type SurfaceStep =
+  | { kind: 'member'; line: number; member: ModuleMember }
+  | { kind: 'forward'; line: number; forward: ExportForward }
+  | { kind: 'alias'; line: number; alias: MemberAlias };
+
+/** Members, forwarding loops and aliases in source order: applied in this order, a later
+ * definition overrides an earlier one exactly as it does at runtime (e.g. an explicit
+ * `function T:M()` after a forwarding loop wraps the forwarded export). */
+export function surfaceSteps(surface: ModuleFileSurface): SurfaceStep[] {
+  const steps: SurfaceStep[] = [
+    ...surface.members.map((member) => ({ kind: 'member' as const, line: member.line, member })),
+    ...surface.forwards.map((forward) => ({ kind: 'forward' as const, line: forward.line, forward })),
+    ...surface.aliases.map((alias) => ({ kind: 'alias' as const, line: alias.line, alias })),
+  ];
+  return steps.sort((a, b) => a.line - b.line);
+}
+
 /** Candidate files the ls_core loader (`init.lua` loadModule) tries, in order, for one side. */
 export function moduleFileCandidates(dir: string, side: 'client' | 'server'): { context: string[]; shared: string[] } {
   const prefix = dir ? `${dir}/` : '';

@@ -13,6 +13,7 @@ import {
   moduleFileCandidates,
   parseModuleFile,
   parseRegistrations,
+  surfaceSteps,
 } from './moduleParser';
 
 const REGENERATE_DEBOUNCE_MS = 500;
@@ -205,24 +206,26 @@ export class LsModuleTypes implements vscode.Disposable {
       const surface = parseModuleFile(file.text, tableName);
       const display = `${root.name}/${file.rel}`;
 
-      for (const m of surface.members) {
-        members.set(m.name, { ...m, source: { fsPath: file.uri.fsPath, line: m.line, display } });
-      }
-      for (const fwd of surface.forwards) {
-        for (const exportName of fwd.exportNames) {
-          members.set(exportName, this.forwardedMember(exportName, fwd.resourceName, fwd.separator, side) ?? {
-            name: exportName,
-            kind: 'function',
-            separator: fwd.separator,
-            params: ['...'],
-            doc: [],
-            source: { fsPath: file.uri.fsPath, line: fwd.line, display },
-          });
+      for (const step of surfaceSteps(surface)) {
+        if (step.kind === 'member') {
+          const m = step.member;
+          members.set(m.name, { ...m, source: { fsPath: file.uri.fsPath, line: m.line, display } });
+        } else if (step.kind === 'forward') {
+          const fwd = step.forward;
+          for (const exportName of fwd.exportNames) {
+            members.set(exportName, this.forwardedMember(exportName, fwd.resourceName, fwd.separator, side) ?? {
+              name: exportName,
+              kind: 'function',
+              separator: fwd.separator,
+              params: ['...'],
+              doc: [],
+              source: { fsPath: file.uri.fsPath, line: fwd.line, display },
+            });
+          }
+        } else {
+          const target = members.get(step.alias.target);
+          if (target) members.set(step.alias.alias, { ...target, name: step.alias.alias, aliasOf: step.alias.target });
         }
-      }
-      for (const alias of surface.aliases) {
-        const target = members.get(alias.target);
-        if (target) members.set(alias.alias, { ...target, name: alias.alias, aliasOf: alias.target });
       }
     }
     return [...members.values()];
