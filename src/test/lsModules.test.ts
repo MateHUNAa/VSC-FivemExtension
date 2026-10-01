@@ -2,7 +2,13 @@ import * as assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { docBlockAbove, maskComments } from '../lsModules/luaLexer';
 import { emitMetaFile } from '../lsModules/metaEmitter';
-import { findReturnedTable, moduleFileCandidates, parseModuleFile, parseRegistrations } from '../lsModules/moduleParser';
+import {
+  findReturnedTable,
+  moduleFileCandidates,
+  parseModuleFile,
+  parseRegistrations,
+  surfaceSteps,
+} from '../lsModules/moduleParser';
 
 describe('maskComments', () => {
   it('blanks line and block comments but keeps strings and line count', () => {
@@ -102,6 +108,27 @@ describe('parseModuleFile', () => {
       ['Progress', 'Progressbar'],
       ['TextUI', 'ShowTextUI'],
     ]);
+  });
+});
+
+describe('surfaceSteps', () => {
+  it('orders members after a forwarding loop so they override it, like the runtime', () => {
+    const src = [
+      'local Inventory = {}',
+      'function Inventory:Early() end',
+      "local exported <const> = { 'Early', 'GetItem', 'AddItem' }",
+      'for _, name in ipairs(exported) do',
+      '    Inventory[name] = function(_, ...) return exports.ls_inventory[name](nil, ...) end',
+      'end',
+      '---@return LSInventoryItem?',
+      'function Inventory:GetItem(id) end',
+      'return Inventory',
+    ].join('\n');
+    const steps = surfaceSteps(parseModuleFile(src, 'Inventory'));
+    assert.deepEqual(
+      steps.map((s) => (s.kind === 'member' ? `member:${s.member.name}` : s.kind)),
+      ['member:Early', 'forward', 'member:GetItem'],
+    );
   });
 });
 
