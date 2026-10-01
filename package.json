@@ -139,6 +139,11 @@
           "default": true,
           "description": "Lightweight completion after Table: / Table. for local `function Table:Method(...)` / `function Table.Method(...)` declarations found elsewhere in the same resource. Pattern-based only, no type inference - a real Lua language server (e.g. cfxlua-vscode) is the complete solution; see the README."
         },
+        "perfectFivem.lsModules.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate LuaLS types for modules published with LS:RegisterModule(name, resource, path) so LS.<Name> gets completion, hover and signature help. Writes .vscode/perfect-fivem/ls-modules.lua and adds that folder to the workspace Lua.workspace.library (seeded with your user-level entries on first write). Requires the Lua (sumneko) extension."
+        },
         "perfectFivem.rcon.enable": {
           "type": "boolean",
           "default": true,
@@ -180,6 +185,10 @@
         "title": "Perfect FiveM: Show Resource Info for Current File"
       },
       {
+        "command": "perfectFivem.regenerateLsModuleTypes",
+        "title": "Perfect FiveM: Regenerate LS Module Types"
+      },
+      {
         "command": "perfectFivem.rcon.connect",
         "title": "Perfect FiveM: RCON Connect"
       },
@@ -209,7 +218,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "update-natives": "node ./scripts/update-natives.js"
+    "update-natives": "node ./scripts/update-natives.js",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

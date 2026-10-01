@@ -8,6 +8,7 @@ import { ExportsEventsDefinitionProvider, ExportsEventsHoverProvider } from './i
 import { ImportsEventCodeLensProvider } from './imports/importEventCodeLensProvider';
 import { ImportsRenameProvider } from './imports/importRenameProvider';
 import { ImportsWorkspaceSymbolProvider } from './imports/importWorkspaceSymbolProvider';
+import { LsModuleTypes } from './lsModules/lsModuleTypes';
 import { NativeCompletionProvider } from './natives/completionProvider';
 import { NativeQuickFixProvider } from './natives/codeActionProvider';
 import { NativeContextDiagnostics } from './natives/diagnostics';
@@ -112,6 +113,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(LUA_SELECTOR, tableMethodCompletionProvider, '.', ':'),
     );
+  }
+
+  // --- LS:RegisterModule IntelliSense (generated LuaLS meta file) -----------------
+  if (config.get<boolean>('lsModules.enable', true)) {
+    const lsModuleTypes = new LsModuleTypes(scanner, contextIndex, exportsIndex, log);
+    context.subscriptions.push(
+      lsModuleTypes,
+      vscode.commands.registerCommand('perfectFivem.regenerateLsModuleTypes', async () => {
+        await lsModuleTypes.initialBuild();
+        vscode.window.showInformationMessage('Perfect FiveM: LS module types regenerated.');
+      }),
+    );
+    void lsModuleTypes.initialBuild().catch((err) => log.error('LS modules: initial build failed', err));
   }
 
   // --- RCON: restart the owning resource on save --------------------------------
@@ -264,6 +278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'imports.enableEventCodeLens',
         'rcon.enable',
         'oop.enable',
+        'lsModules.enable',
       ];
       if (toggles.some((t) => e.affectsConfiguration(`perfectFivem.${t}`))) {
         vscode.window

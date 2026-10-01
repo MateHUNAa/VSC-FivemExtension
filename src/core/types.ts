@@ -48,6 +48,8 @@ export interface ExportEntry {
   resourceName: string;
   fileUri: vscode.Uri;
   line: number;
+  /** The `---` annotation/doc lines directly above the declaration. */
+  doc: string[];
 }
 
 export interface EventEntry {
